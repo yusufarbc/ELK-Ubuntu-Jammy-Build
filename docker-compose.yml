@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: es01
+    environment:
+      - "discovery.type=single-node"
+      - "ES_JAVA_OPTS=-Xms32g -Xmx32g"
+      - "xpack.security.enabled=true"
+      - "xpack.security.transport.ssl.enabled=true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - /mnt/nvme/elasticsearch/data:/usr/share/elasticsearch/data
+      - ./certs:/usr/share/elasticsearch/config/certs:ro
+    ports:
+      - 9200:9200
+      - 9300:9300
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    environment:
+      - "LS_JAVA_OPTS=-Xms4g -Xmx4g"
+      - "ELASTIC_PASSWORD=${ELASTIC_PASSWORD}"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config:/usr/share/logstash/config:ro
+      - ./certs:/usr/share/logstash/config/certs:ro
+    ports:
+      - 5044:5044    # beats / winlogbeat
+      - 5514:5514    # syslog (tcp/udp)
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    environment:
+      - "ELASTICSEARCH_HOSTS=https://elasticsearch:9200"
+      - "ELASTICSEARCH_USERNAME=elastic"
+      - "ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}"
+    ports:
+      - 5601:5601
+    volumes:
+      - ./certs:/usr/share/kibana/config/certs:ro
+    restart: unless-stopped
+
+networks:
+  default:
+    name: elk
+    driver: bridge

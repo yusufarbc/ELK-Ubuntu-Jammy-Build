@@ -1,0 +1,17 @@
+{
+  "index_patterns": ["logs-*"],
+  "template": {
+    "settings": { "index.lifecycle.name": "logs-30d-delete" },
+    "mappings": {
+      "properties": {
+        "source.ip": { "type": "ip" },
+        "destination.ip": { "type": "ip" },
+        "user.name": { "type": "keyword" },
+        "event.code": { "type": "keyword" },
+        "event.module": { "type": "keyword" },
+        "event.dataset": { "type": "keyword" },
+        "@timestamp": { "type": "date" }
+      }
+    }
+  }
+}

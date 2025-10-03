@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  logstash_test:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash_test
+    environment:
+      - "LS_JAVA_OPTS=-Xms1g -Xmx1g"
+    volumes:
+      - ./tools/logstash_test/pipeline:/usr/share/logstash/pipeline:ro
+      - ./tools/logstash_test/config:/usr/share/logstash/config:ro
+      - ./tools/logstash_test/samples:/samples:ro
+      - ./tools/logstash_test/output:/usr/share/logstash/test-output
+    command: ["logstash", "-f", "/usr/share/logstash/pipeline"]
+    tty: true
+    restart: "no"

@@ -1,0 +1,14 @@
+# Ignore generated certs and test outputs
+certs/
+tools/logstash_test/output/
+
+# OS/Editor
+.DS_Store
+*.swp
+*~
+
+# Python cache
+__pycache__/
+
+# Logs
+*.log
