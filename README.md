@@ -1,65 +1,60 @@
 # ELK-Ubuntu-Jammy-Build
 
-Bu repository, tek bir Ubuntu LTS (Jammy) sunucusu üzerine agentless Elastic Stack (Elasticsearch, Kibana, Logstash) kurulumunu hızla başlatmak ve temel operasyonları yürütmek için hazırlanmıştır. İçerik: non-interactive kurulum scripti, örnek Logstash pipeline'ları ve konfigürasyon notları.
+Bu repository, tek bir Ubuntu LTS (Jammy) sunucusuna agentless Elastic Stack (Elasticsearch, Kibana, Logstash) kurmak ve temel işletim/izleme ihtiyaçlarını karşılamak için örnek script ve konfigürasyonlar içerir.
 
 ## İçindekiler
 
-- [Amaç](#amaç)
-- [Hızlı Kurulum](#hızlı-kurulum)
-- [Kurulum Sonrası Doğrulama](#kurulum-sonrası-doğrulama)
-- [Mimari ve Topoloji Notları](#mimari-ve-topoloji-notları)
-- [Temel Sistem Tuning](#temel-sistem-tuning)
-- [Logstash Pipeline Örnekleri (özet)](#logstash-pipeline-örnekleri-özet)
-- [Winlogbeat / rsyslog Örnekleri](#winlogbeat--rsyslog-örnekleri)
-- [ILM ve Index Template Örnekleri](#ilm-ve-index-template-örnekleri)
-- [KQL Örnekleri (hızlı)](#kql-örnekleri-hızlı)
-- [Operasyon & Riskler](#operasyon--riskler)
-- [Öne Çıkan Dosyalar](#öne-çıkan-dosyalar)
-- [Güvenlik ve Katkı Notları](#güvenlik-ve-katkı-notları)
+- Amaç
+- Hızlı Kurulum
+- Kurulum Sonrası Doğrulama
+- Temel Tuning
+- Örnek Pipeline & Log Kaynakları
+- ILM ve Kısa KQL Örnekleri
+- Operasyon Kontrolleri
+- Dosyalar ve Güvenlik Notları
 
 
 ## Amaç
 
-Orta ölçekli kurumlar için düşük maliyetle, ajan kullanmadan (WEF/WEC + Winlogbeat, rsyslog vb.) çalışabilecek, tek sunucuda hızlıca kurulabilen bir Elastic SIEM referansı sunmak.
+Agentless (WEF/WEC + Winlogbeat, rsyslog vb.) yaklaşımla, tek-host üzerinde hızlı kurulup test edilebilen bir Elastic SIEM referansı sunmak.
 
 
 ## Hızlı Kurulum
 
-1. Depoyu klonlayın:
+1) Depoyu klonlayın:
 
 ```bash
 git clone https://github.com/yusufarbc/ELK-Ubuntu-Jammy-Build.git
 cd ELK-Ubuntu-Jammy-Build
 ```
 
-2. Script'i çalıştırılabilir yapın ve kurun:
+2) Kurulum seçenekleri (önerilen: environment secret):
+
+- Environment değişkeni ile (önerilir):
+
+```bash
+export ELASTIC_PASSWORD='SOME_STRONG_PW'
+chmod +x elk_setup_ubuntu_jammy.sh
+sudo ELASTIC_PASSWORD="$ELASTIC_PASSWORD" bash elk_setup_ubuntu_jammy.sh --non-interactive
+```
+
+- Veya doğrudan arg ile (dikkat: komut satırı görünür):
 
 ```bash
 chmod +x elk_setup_ubuntu_jammy.sh
 sudo bash elk_setup_ubuntu_jammy.sh --non-interactive --password 'SOME_STRONG_PW'
 ```
 
-Not: Script single-node varsayılanları ve temel tuning'i uygular. Test amaçlı `--dry-run` destekleniyorsa kullanın.
-
-Güvenli parola kullanımı (önerilen):
-
-- Ortam değişkeni ile:
-
-```bash
-export ELASTIC_PASSWORD='SOME_STRONG_PW'
-sudo bash elk_setup_ubuntu_jammy.sh --non-interactive
-```
-
-- Docker secrets veya container secret dosyası kullanıyorsanız `/run/secrets/elastic_password` dosyasına parolayı koyup script'i `--non-interactive` ile çalıştırabilirsiniz. Script bu kaynakları otomatik kontrol eder.
+Not: Script `--dry-run` modu varsa önce onu çalıştırıp ne yapacağını gözleyin.
 
 
 ## Kurulum Sonrası Doğrulama
 
-Elasticsearch:
+Elasticsearch çalışıyor mu?
 
 ```bash
 sudo systemctl status elasticsearch
-curl -u elastic:'SOME_STRONG_PW' -k https://localhost:9200/
+curl -u elastic:$ELASTIC_PASSWORD -k https://localhost:9200/
 ```
 
 Kibana:
@@ -75,7 +70,7 @@ Logstash:
 sudo systemctl status logstash
 ```
 
-Sistem tuning kontrolleri:
+Temel tuning kontrolleri:
 
 ```bash
 sysctl vm.max_map_count
@@ -83,16 +78,9 @@ ulimit -l   # elasticsearch kullanıcısı ile kontrol edin
 ```
 
 
-## Mimari ve Topoloji Notları
+## Temel Tuning (hızlı)
 
-- Bu referans single-host (lab/small infra) içindir. Üretimde HA, TLS ve secrets yönetimi zorunludur.
-- Log akışı örneği: Windows → WEF/WEC → Winlogbeat → Logstash → Elasticsearch
-- Linux/Network → rsyslog → Logstash → Elasticsearch
-
-
-## Temel Sistem Tuning
-
-Kalıcı uygulanması önerilen host ayarları:
+Uygulanması önerilen host ayarları (kalıcı):
 
 ```bash
 sudo sysctl -w vm.max_map_count=262144
@@ -101,14 +89,14 @@ sudo swapoff -a
 echo -e "elasticsearch soft nofile 65536\nelasticsearch hard nofile 65536" | sudo tee /etc/security/limits.d/90-elasticsearch.conf
 ```
 
-JVM heap: toplam RAM'in yaklaşık yarısı, maksimum 32 GB.
+JVM heap önerisi: toplam RAM'in ~%50'si, maksimum 32 GB.
 
 
-## Logstash Pipeline Örnekleri (özet)
+## Örnek Pipeline & Log Kaynakları (kısa)
 
-Pipeline'ları `./logstash/pipeline/` içine koyun (10-inputs.conf, 20-filters.conf, 30-outputs.conf).
+Pipeline dosyalarını `./logstash/pipeline/` içine yerleştirin. Örnek input/output:
 
-Inputs örneği:
+Inputs:
 
 ```conf
 input {
@@ -118,9 +106,7 @@ input {
 }
 ```
 
-Temel filter örnekleri: Winlogbeat JSON eşleme, syslog için grok ve Kaspersky JSON parse. (Detaylar `CONFIGURATIONS.md` veya pipeline dosyalarında.)
-
-Output örneği (ILM & index isimlendirme):
+Output (örnek):
 
 ```conf
 output {
@@ -135,12 +121,7 @@ output {
 }
 ```
 
-Güvenlik: `ELASTIC_PASSWORD` secret olarak verilmelidir; komut satırında açık paylaşmayın.
-
-
-## Winlogbeat / rsyslog Örnekleri
-
-Winlogbeat (WEC kolektörüne kurulu) - örnek:
+Winlogbeat (WEC kolektörü) için örnek:
 
 ```yaml
 winlogbeat.event_logs:
@@ -149,60 +130,56 @@ output.logstash:
   hosts: ["<SIEM_HOST_IP>:5044"]
 ```
 
-rsyslog istemci örneği (`/etc/rsyslog.d/60-siem.conf`):
+rsyslog istemci örneği:
 
 ```
 *.* @@SIEM_HOST_IP:5514
 ```
 
 
-## ILM ve Index Template Örnekleri
+## ILM ve Kısa KQL Örnekleri
 
-ILM (örnek): 30 gün sonra silme.
+Örnek ILM (30 gün sonra silme):
 
-Basit index template örneği ve ILM politikası `CONFIGURATIONS.md` içinde bulunmaktadır.
+```json
+PUT _ilm/policy/logs-30d-delete
+{
+  "policy": { "phases": { "hot": {}, "delete": { "min_age": "30d", "actions": { "delete": {} } } } }
+}
+```
 
-
-## KQL Örnekleri (hızlı)
+Örnek KQL (hızlı):
 
 - Brute-force (Windows 4625):
 ```
 event.code:4625 and winlog.logon.type:3 and NOT user.name: "Guest"
 ```
-- Şüpheli PowerShell:
+- Şüpheli PowerShell (komut satırı şifreleme):
 ```
 event.code:4688 and process.name: "powershell.exe" and process.command_line: ("-enc" or "-EncodedCommand" or "IEX")
 ```
-- Ağ tarama (firewall deny):
-```
-event.dataset: "firewall" and event.action: "deny"
-```
-
-KQL örnekleri ortamınıza göre uyarlanmalıdır.
 
 
-## Operasyon & Riskler
+## Operasyon Kontrolleri (deploy öncesi)
 
-- Single-node topoloji SPOF içerir; üretimde çok düğümlü cluster ve yedekleme şarttır.
-- Logstash performansı için mümkünse structured/JSON log gönderin.
-- Basic lisans bazı otomasyonları kısıtlayabilir; bildirimler için ElastAlert veya webhook-relay düşünün.
+- vm.max_map_count ayarlı
+- Swap kapatıldı veya swappiness düşük
+- Elasticsearch data volume mount edildi
+- Logstash pipeline'ları test edildi
+- ILM policy ve index template yüklendi
+- Snapshot repo (S3/MinIO) konfigüre edildi
 
 
-## Öne Çıkan Dosyalar
+## Dosyalar ve Güvenlik Notları
 
 - `elk_setup_ubuntu_jammy.sh` — apt tabanlı kurulum scripti (env/secrets desteği eklendi)
-- `logstash/pipeline/` — pipeline örnekleri (yerel klasörde ise test edip kullanın)
-- `CONFIGURATIONS.md`, `SINGLE_HOST_QUICKSTART.md` — Kısa yönlendirme dosyaları; tüm detaylar artık `README.md` içinde birleştirilmiştir.
-- `cloud-init/`, `deploy_remote.sh` — uzak kurulum yardımcıları (varsa)
+- `logstash/pipeline/` — pipeline örnekleri (varsa)
+- `CONFIGURATIONS.md`, `SINGLE_HOST_QUICKSTART.md` — kısa yönlendirme dosyaları; detaylar README içinde
 
-
-## Güvenlik ve Katkı Notları
-
-- Bu repo örnek amaçlıdır; gerçek şifreleri ve sertifikaları repoya koymayın.
+Güvenlik ve katkı:
+- Gerçek şifreleri ve sertifikaları repoya koymayın.
 - Üretimde TLS, erişim kontrolü ve secrets yönetimi uygulayın.
-- `certs/` dizinini commit etmeyin.
-
 
 ---
 
-Bu README, gereksiz tekrarlar ve İngilizce paragraflar çıkarılarak sadeleştirilmiş bir Türkçe kılavuzdur. Daha fazla sadeleştirme, ek örnek veya başka bir yapı istiyorsanız söyleyin.
+Bu README kısa ve uygulanabilir bir quickstart/başlangıç rehberidir. Daha fazla sadeleştirme veya ayrıntı istiyorsanız belirtin, onu uygulayayım.
