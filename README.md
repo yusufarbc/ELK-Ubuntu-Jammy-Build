@@ -82,6 +82,43 @@ sysctl vm.max_map_count
 ulimit -l   # elasticsearch kullanıcısı ile kontrol edin
 ```
 
+### Elasticsearch kullanıcısına geçme ve örnek komutlar
+
+Bazı kontrolleri ve araçları `elasticsearch` sistem kullanıcısı altında çalıştırmak gerekir. `elasticsearch` kullanıcısı genellikle login shell'e sahip olmayabilir; bu nedenle iki yöntem önerilir:
+
+- Tek bir komut çalıştırmak için (tercih edilen, güvenli):
+
+```bash
+sudo -u elasticsearch bash -c 'ulimit -l'
+sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
+sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b
+```
+
+- Eğer shell açmak isterseniz (sistemde izin varsa):
+
+```bash
+# Eğer sisteminizde izin veriyorsa interaktif shell açabilirsiniz
+sudo -i -u elasticsearch
+# veya (bazı sistemlerde çalışmayabilir)
+sudo -u elasticsearch /bin/bash
+```
+
+Notlar:
+- `elasticsearch` kullanıcısı ile çalıştırırken bazı komutlar root yetkisi gerektirebilir; `sudo` ile komut çalıştırmak genellikle yeterlidir.
+- Enrollment token veya parola sıfırlama komutları Elasticsearch'un düzgün çalışır durumda olduğu zaman başarıyla çalışır. Eğer hata alırsanız önce Elasticsearch servis durumunu ve loglarını kontrol edin:
+
+```bash
+sudo systemctl status elasticsearch
+sudo journalctl -u elasticsearch -b --no-pager | tail -n 100
+```
+
+- Script tarafından otomatik oluşturulmuş parolayı okumak isterseniz (sadece root erişimiyle):
+
+```bash
+sudo cat /root/.elastic_pw
+```
+
+
 
 ## Temel Tuning (hızlı)
 
