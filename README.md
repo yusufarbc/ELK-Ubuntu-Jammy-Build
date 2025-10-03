@@ -10,6 +10,11 @@ Bu repository, tek bir Ubuntu LTS (Jammy) sunucusuna agentless Elastic Stack (El
 - Temel Tuning
 - Örnek Pipeline & Log Kaynakları
 - ILM ve Kısa KQL Örnekleri
+
+Ön Koşullar:
+
+- Ubuntu 22.04 LTS (Jammy) kullanılması önerilir. Resmi ISO ve sürümler için: https://releases.ubuntu.com/jammy/
+
 - Operasyon Kontrolleri
 - Dosyalar ve Güvenlik Notları
 
