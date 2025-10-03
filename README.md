@@ -7,6 +7,8 @@ Dil: Türkçe
 Dosyalar
 - `elk_setup_ubuntu_jammy.sh` — Otomatik kurulum scripti (Ubuntu LTS). Script root olarak çalıştırılmalıdır.
 
+Not: Ek kullanım seçenekleri, CI ve otomasyon talimatları için `README_EXTRAS.md` dosyasına bakın.
+
 Hızlı başlangıç
 
 1) Script'i sunucuya kopyalayın ve çalıştırın (root/sudo):

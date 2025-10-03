@@ -10,6 +10,24 @@ fi
 echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
 apt update && apt install -y apt-transport-https curl gnupg jq
 
+# CLI arg handling: --password/-p and --non-interactive
+NONINTERACTIVE=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -p|--password)
+      ELASTIC_PW="$2"
+      shift 2
+      ;;
+    --non-interactive)
+      NONINTERACTIVE=true
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
 # Elastic APT deposunu ekle
 echo "[*] Elastic GPG anahtarı ekleniyor..."
 curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elastic.gpg
@@ -40,17 +58,23 @@ systemctl daemon-reload
 systemctl enable elasticsearch
 systemctl start elasticsearch
 
-# Elastic kullanıcısı şifresini resetle (random) ve al
-echo "[*] Elastic kullanıcı şifresi sıfırlanıyor..."
-echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
-# Elastic kullanicisi sifresini resetle (random) ve al; fallback to manual prompt if command fails
-if ELASTIC_PW_OUT=$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null) && echo "$ELASTIC_PW_OUT" | grep -q "New value:"; then
-  ELASTIC_PW="$(echo "$ELASTIC_PW_OUT" | awk '/New value:/ {print $NF}')"
-  echo "Yeni 'elastic' sifresi: $ELASTIC_PW"
+# Elastic kullanıcısı şifresini sağlamadıysanız otomatik oluşturmayı deneyin
+if [ -n "${ELASTIC_PW-}" ]; then
+  echo "[*] ELASTIC_PW sağlandı via arg/env, kullanılıyor."
 else
-  echo "Otomatik sifre sifirlama basarisiz oldu veya desteklenmiyor. Lutfen manuel olarak bir parola belirleyin." >&2
-  read -rsp "Elastic kullanicisi icin yeni parola girin: " ELASTIC_PW
-  echo
+  echo "[*] Elastic kullanıcı şifresi sıfırlanmaya çalışılıyor (otomatik)..."
+  if ELASTIC_PW_OUT=$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null) && echo "$ELASTIC_PW_OUT" | grep -q "New value:"; then
+    ELASTIC_PW="$(echo "$ELASTIC_PW_OUT" | awk '/New value:/ {print $NF}')"
+    echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
+  else
+    if [ "$NONINTERACTIVE" = true ]; then
+      echo "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen --password ile şifre sağlayın." >&2
+      exit 1
+    fi
+    echo "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
+    read -rsp "Elastic kullanıcısı için yeni parola girin: " ELASTIC_PW
+    echo
+  fi
 fi
 
 # Kibana enrollment token al
