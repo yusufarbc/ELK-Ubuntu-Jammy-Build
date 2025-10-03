@@ -1,4 +1,3 @@
-echo -e "elasticsearch soft nofile 65536\nelasticsearch hard nofile 65536" | sudo tee /etc/security/limits.d/90-elasticsearch.conf
 # ELK-Ubuntu-Jammy-Build
 
 Bu repository, tek bir Ubuntu LTS (Jammy) sunucusu üzerine agentless Elastic Stack (Elasticsearch, Kibana, Logstash) kurulumunu hızla başlatmak ve temel operasyonları yürütmek için hazırlanmıştır. İçerik: non-interactive kurulum scripti, örnek Logstash pipeline'ları ve konfigürasyon notları.
@@ -191,10 +190,10 @@ KQL örnekleri ortamınıza göre uyarlanmalıdır.
 
 ## Öne Çıkan Dosyalar
 
-- `elk_setup_ubuntu_jammy.sh` — apt tabanlı kurulum scripti
-- `logstash/pipeline/` — pipeline örnekleri
-- `CONFIGURATIONS.md`, `SINGLE_HOST_QUICKSTART.md` — detaylı notlar (repo içinde)
-- `cloud-init/`, `deploy_remote.sh` — uzak kurulum yardımcıları
+- `elk_setup_ubuntu_jammy.sh` — apt tabanlı kurulum scripti (env/secrets desteği eklendi)
+- `logstash/pipeline/` — pipeline örnekleri (yerel klasörde ise test edip kullanın)
+- `CONFIGURATIONS.md`, `SINGLE_HOST_QUICKSTART.md` — Kısa yönlendirme dosyaları; tüm detaylar artık `README.md` içinde birleştirilmiştir.
+- `cloud-init/`, `deploy_remote.sh` — uzak kurulum yardımcıları (varsa)
 
 
 ## Güvenlik ve Katkı Notları
