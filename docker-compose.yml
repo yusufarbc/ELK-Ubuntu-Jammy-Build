@@ -1,2 +1,0 @@
-REMOVED: docker-compose.yml was removed to keep repo focused on single-host apt-based installer.
-If you need a Docker Compose variant, restore from your branch or request a separate docker-compose branch.

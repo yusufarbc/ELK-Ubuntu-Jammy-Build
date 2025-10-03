@@ -1,5 +1,0 @@
-# Logstash JVM options (minimal)
--Xms4g
--Xmx4g
--XX:+UseG1GC
--XX:+HeapDumpOnOutOfMemoryError

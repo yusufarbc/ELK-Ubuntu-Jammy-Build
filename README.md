@@ -1,4 +1,62 @@
+# Hızlı Kurulum
+
+1. Depoyu klonlayın:
+  ```bash
+  git clone https://github.com/yusufarbc/ELK-Ubuntu-Jammy-Build.git
+  cd ELK-Ubuntu-Jammy-Build
+  ```
+
+2. Kurulum scriptini çalıştırılabilir yapın:
+  ```bash
+  chmod +x elk_setup_ubuntu_jammy.sh
+  ```
+
+3. Kurulumu başlatın (root/sudo ile):
+  ```bash
+  sudo bash elk_setup_ubuntu_jammy.sh --non-interactive --password 'SOME_STRONG_PW'
+  ```
+
+4. Servisleri ve erişimi kontrol edin:
+  ```bash
+  sudo systemctl status elasticsearch kibana logstash
+  curl -u elastic:'SOME_STRONG_PW' -k https://localhost:9200/
+  ```
+
+5. Log kaynaklarınızı (Winlogbeat, rsyslog, Kaspersky vb.) örnek konfigürasyonlarla yönlendirin.
+
+Detaylı adımlar ve ileri seviye ayarlar için `SINGLE_HOST_QUICKSTART.md` dosyasına bakınız.
+
 # ELK-Ubuntu-Jammy-Build — Single-host Ubuntu Jammy installer
+
+📌 **Amaç:**
+Orta ölçekli bir kurumun temel güvenlik olaylarını izleyip alarm üretebileceği, tamamen ücretsiz ve agentless çalışan, sürdürülebilir ve stabil bir on-prem SIEM altyapısı kurmak.
+
+🛠️ **Yapının Özeti:**
+- Elastic Stack 8.x (Basic lisans) tabanlı.
+- Tek fiziksel sunucu üzerinde, Docker kullanılmadan kurulur.
+- Ubuntu LTS işletim sistemi üzerinde çalışan:
+  - 3 Elasticsearch node (node1: master+ingest, node2/3: data_hot)
+  - 1 Kibana
+  - 1 Logstash
+
+📥 **Log Toplama:**
+- Windows Logları: Windows Event Forwarding (WEF) + ayrı WEC sunucusuna, oradan Winlogbeat ile Logstash’a.
+- Linux & Firewall Logları: Syslog (UDP/TCP 5514) üzerinden doğrudan Logstash’a.
+- SMB File Server Logları: Gelişmiş Audit Policy + WEF ile WEC sunucusuna, oradan Logstash’a.
+- Kaspersky AV Logları: Syslog veya Filebeat üzerinden Logstash’a.
+
+📦 **Log İşleme ve Saklama:**
+- Logstash filtreleri ile ECS uyumlu normalizasyon.
+- İndeks şeması: logs-event.dataset-YYYY.MM.DD
+- ILM Politikası: 30 gün sonra otomatik silme.
+
+🔐 **SIEM ve Güvenlik İzleme:**
+- Kibana'da Elastic Security etkinleştirildi.
+- Hazır kurallar (prebuilt detection rules) yüklendi.
+- MITRE ATT&CK & Cyber Kill Chain temelli özel KQL kuralları oluşturuldu.
+- Alarm yanıtı: Kibana Case, e-posta veya webhook ile bildirim.
+
+Bu yapı, minimum maliyetle ve minimum ajan kullanımıyla, orta ölçekli kurumların log temelli güvenlik izleme ihtiyaçlarını karşılamayı hedefler. Docker veya Elastic Agent gerektirmediği için sade, anlaşılır ve kontrol edilebilir bir mimaridir.
 
 Kısa: Bu repo, tek bir Ubuntu LTS sunucusuna (Docker kullanmadan) Elastic Stack 8.x (Basic lisans) kurmak için hazırlanmış, non-interactive bir kurulum scripti ve destekleyici Logstash pipeline'ları içerir. Amaç: agentless (WEF/WEC + Winlogbeat, rsyslog, Kaspersky) log toplama ile orta ölçekli kurumlar için düşük maliyetli SIEM kurmaktır.
 
@@ -27,7 +85,7 @@ curl -u elastic:'SOME_STRONG_PW' -k https://localhost:9200/
 - Kurulum lab/single-host içindir. Üretim için çok düğümlü Elasticsearch (HA), TLS ve secrets management zorunludur.
 - Script Logstash için non-privileged syslog portu `5514` ve Beats portu `5044` kullanır.
 
-Detaylı rehber: `SINGLE_HOST_QUICKSTART.md` ve `README_EXTRAS.md`.
+Detaylı rehber: `SINGLE_HOST_QUICKSTART.md`.
 ```
 *.* @@SIEM_HOST_IP:5514   # @@ = TCP, tek @ olursa UDP
 ```
@@ -141,68 +199,19 @@ Katkı ve güvenlik
 - Bu repo örnek amaçlıdır. Parolalar, IP'ler ve hassas veriler kaydedilmemelidir.
 - Üretimde TLS sertifikaları ve erişim kısıtlamaları uygulanmalıdır.
 
-Sertifikalar (test, self-signed) ve Docker Compose ile başlatma
-
-1) Test sertifikaları üret
-- Lab ortamı için repo kökünde:
-
-```bash
-chmod +x tools/generate-self-signed-certs.sh
-sudo tools/generate-self-signed-certs.sh
-```
-
-Bu script `./certs` dizini altında bir CA ve servis sertifikalarını oluşturur (elasticsearch, kibana, logstash). `docker-compose.yml` dosyası bu dizini konteynerlerde `/usr/share/.../certs` olarak mount eder.
-
-2) ELASTIC_PASSWORD ayarla ve compose başlat
-- Parolayı bir çevre değişkeni olarak ayarlayın (örnek):
-```bash
-export ELASTIC_PASSWORD="SOME_STRONG_PASSWORD"
-docker compose up -d
-```
-
-- İlk kez çalıştırırken Elasticsearch kurulum loglarını izleyin; Kibana'ya `https://<SUNUCU_IP>:5601` ile bağlanın ve enrollment sürecini tamamlayın.
 
 
-Pipeline testi ve commit öncesi kontrol
-------------------------------------
 
-1) Scriptleri çalıştırılabilir yapın (commit öncesi yerelde test etmek için):
 
-```bash
-chmod +x scripts/*.sh
-```
+## Ek Notlar ve İpuçları
 
-2) `20-filters.conf` içindeki desenleri test etmek için (önerilen akış):
-
-- Kopyalayın veya düzenleyin: `logstash/pipeline/20-filters.conf` dosyanızda yapacağınız değişiklikleri önce `tools/logstash_test/pipeline/00-test.conf` içine kopyalayın veya doğrudan `tools/logstash_test/pipeline/` altına yeni bir dosya ekleyin.
-- Test harness'i başlatın:
-
-```bash
-cd tools/logstash_test
-docker compose up --build
-```
-
-- Çıktıyı kontrol edin:
-
-```bash
-cat tools/logstash_test/output/output.json
-docker logs -f logstash_test
-```
-
-3) Commit öncesi hızlı kontrol listesi
-
-- `chmod +x scripts/*.sh` ile scriptlere izin verin (gerekiyorsa).
-- `tools/generate-self-signed-certs.sh` ile `./certs` oluşturduysanız, `certs/` dizinini commit etmeyin — takip etmek istemezsiniz. Repo kökünde `.gitignore` dosyası bu dizini yok sayacak şekilde ayarlanmıştır.
-- Değişiklikleri commit etmeden önce test harness çıktısını doğrulayın ve `logstash/pipeline/20-filters.conf` içindeki grok desenlerinin sample loglar üzerinde doğru çalıştığını teyit edin.
-
-4) Basit commit örneği
-
-```bash
-git add -A
-git commit -m "logstash: tune filters for kaspersky/asa/fortigate; add test harness samples"
-git push origin main
-```
-
-Not: Bu repo tercihli olarak hassas içerikleri (sertifikalar, gerçek örnek loglar) saklamamalıdır. Gerçek üretim loglarını buraya eklemeyin.
+- Scriptleri çalıştırılabilir yapın:
+  ```bash
+  chmod +x scripts/*.sh
+  ```
+- `tools/generate-self-signed-certs.sh` ile test sertifikası üretebilirsiniz. Üretim ortamında kendi CA'nızı kullanmanız önerilir.
+- `certs/` dizinini commit etmeyin. `.gitignore` dosyası bu dizini hariç tutar.
+- Değişiklikleri commit etmeden önce Logstash pipeline'larınızı ve filtrelerinizi test edin.
+- Hassas içerikleri (sertifikalar, gerçek loglar) repoya eklemeyin.
 
 ```

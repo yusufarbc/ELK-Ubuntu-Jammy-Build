@@ -1,6 +1,0 @@
-# Minimal Logstash config used by the installer (package-based deployments)
-http.host: "0.0.0.0"
-queue.type: persisted
-path.data: /usr/share/logstash/data
-path.logs: /usr/share/logstash/logs
-config.reload.automatic: false
