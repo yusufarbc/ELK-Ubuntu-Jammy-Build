@@ -1,3 +1,37 @@
+# ELK-Ubuntu-Jammy-Build
+
+**Amaç:**
+Orta ölçekli kurumlar için tamamen ücretsiz, agentless, sürdürülebilir ve stabil bir on-prem SIEM altyapısı kurmak. Elastic Stack 8.x (Basic lisans) ve Ubuntu LTS üzerinde, Docker kullanmadan, tek sunucuda hızlı kurulum sağlar.
+
+# Hızlı Kurulum
+1. Depoyu klonlayın:
+  ```bash
+  git clone https://github.com/yusufarbc/ELK-Ubuntu-Jammy-Build.git
+  cd ELK-Ubuntu-Jammy-Build
+  ```
+2. Kurulum scriptini çalıştırılabilir yapın:
+  ```bash
+  chmod +x elk_setup_ubuntu_jammy.sh
+  ```
+3. Kurulumu başlatın (root/sudo ile):
+  ```bash
+  sudo bash elk_setup_ubuntu_jammy.sh --non-interactive --password 'SOME_STRONG_PW'
+  ```
+4. Servisleri ve erişimi kontrol edin:
+  ```bash
+  sudo systemctl status elasticsearch kibana logstash
+  curl -u elastic:'SOME_STRONG_PW' -k https://localhost:9200/
+  ```
+5. Log kaynaklarınızı (Winlogbeat, rsyslog, Kaspersky vb.) örnek konfigürasyonlarla yönlendirin.
+
+Detaylı adımlar ve ileri seviye ayarlar için [SINGLE_HOST_QUICKSTART.md](SINGLE_HOST_QUICKSTART.md) ve [CONFIGURATIONS.md](CONFIGURATIONS.md) dosyalarına bakınız.
+
+# İlgili Belgeler
+- [Hızlı Kurulum ve Doğrulama Adımları](SINGLE_HOST_QUICKSTART.md)
+- [Detaylı Konfigürasyon ve Pipeline Örnekleri](CONFIGURATIONS.md)
+
+# Mimari ve Özellikler
+...existing code...
 # İlgili Belgeler
 
 - [Hızlı Kurulum ve Doğrulama Adımları](SINGLE_HOST_QUICKSTART.md)

@@ -1,3 +1,19 @@
+# SINGLE_HOST_QUICKSTART.md
+
+**Bu belge, Elastic Stack single-host kurulumunu hızlıca başlatmak ve doğrulamak için adım adım rehber sunar.**
+
+Kurulum öncesi mimari ve pipeline detayları için: [CONFIGURATIONS.md](CONFIGURATIONS.md)
+
+---
+
+## Hızlı Başlangıç
+1. Depoyu klonlayın ve kurulum scriptini çalıştırın (detaylar için README.md'ye bakınız).
+2. Kurulumdan sonra aşağıdaki adımlarla servisleri doğrulayın:
+	- Elasticsearch, Kibana, Logstash servis durumunu kontrol edin.
+	- Kurulum sonrası temel sistem tuning ayarlarını doğrulayın.
+
+## Temel Komutlar ve Doğrulama
+...existing code...
 **Daha fazla mimari ve pipeline örneği için:** [CONFIGURATIONS.md](CONFIGURATIONS.md)
 
 Single-host ELK Quickstart (Ubuntu Jammy)

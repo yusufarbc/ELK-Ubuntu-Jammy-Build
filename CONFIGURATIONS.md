@@ -1,3 +1,24 @@
+# CONFIGURATIONS.md
+
+**Bu belge, Elastic SIEM single-host kurulumunda kullanılacak tüm önemli konfigürasyon, pipeline ve pratik ipuçlarını içerir.**
+
+Kurulum ve hızlı doğrulama için: [SINGLE_HOST_QUICKSTART.md](SINGLE_HOST_QUICKSTART.md)
+
+---
+
+## İçerik
+- Mimari özet ve bileşenler
+- Sistem/kernel/JVM tuning
+- Elasticsearch ve Logstash için örnek konfigürasyonlar
+- Log toplama ve pipeline örnekleri (Winlogbeat, rsyslog, Kaspersky)
+- ILM ve index template örnekleri
+- KQL detection kuralları
+- Snapshot, monitoring ve operasyonel ipuçları
+
+---
+
+## 1. Mimari ve Bileşenler
+...existing code...
 # Konfigürasyon Rehberi — Agentless Elastic SIEM (Ubuntu Jammy, single-host) — Orta Ölçek (≈100 GB/gün)
 
 **Kurulum ve hızlı doğrulama için:** [SINGLE_HOST_QUICKSTART.md](SINGLE_HOST_QUICKSTART.md)
