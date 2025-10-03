@@ -68,6 +68,10 @@ while [ "$#" -gt 0 ]; do
       DEBUG=true
       shift
       ;;
+    --no-verify)
+      VERIFY=false
+      shift
+      ;;
     *)
       shift
       ;;
@@ -329,6 +333,118 @@ sed -i "s/__ELASTIC_PW__/$ELASTIC_PW/" /etc/logstash/conf.d/00-siem.conf
 # Logstash'i başlat
 systemctl enable logstash
 systemctl start logstash
+
+# Post-install doğrulama fonksiyonları
+VERIFY=${VERIFY:-true}
+VERIFY_RETRIES=${VERIFY_RETRIES:-12}
+VERIFY_WAIT=${VERIFY_WAIT:-5}
+
+check_service_active() {
+  local svc="$1"
+  if systemctl is-active --quiet "$svc"; then
+    log_info "$svc servisi çalışıyor"
+    return 0
+  else
+    log_err "$svc servisi çalışmıyor"
+    return 1
+  fi
+}
+
+check_es_health() {
+  local out=""
+  if [ -n "${ELASTIC_PW-}" ]; then
+    out=$(curl -s -u elastic:"$ELASTIC_PW" -k https://localhost:9200/_cluster/health || true)
+  else
+    out=$(curl -s -k https://localhost:9200/_cluster/health || true)
+  fi
+  if echo "$out" | grep -q '"status"' ; then
+    log_info "Elasticsearch cluster sağlık sorgusu başarılı"
+    return 0
+  fi
+  log_err "Elasticsearch sağlık bilgisi alınamadı"
+  return 1
+}
+
+check_kibana_up() {
+  if command -v curl >/dev/null 2>&1; then
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -k https://localhost:5601/ || true)
+    if [ "$code" = "200" ] || [ "$code" = "302" ] || [ "$code" = "401" ]; then
+      log_info "Kibana HTTP erişim testi başarılı (kod: $code)"
+      return 0
+    fi
+    log_err "Kibana erişim testi başarısız (kod: $code)"
+    return 1
+  else
+    log_warn "curl yüklü değil; Kibana erişimi atlanıyor"
+    return 2
+  fi
+}
+
+check_logstash_config() {
+  if [ -x "/usr/share/logstash/bin/logstash" ]; then
+    if /usr/share/logstash/bin/logstash --path.settings /etc/logstash -t >/dev/null 2>&1; then
+      log_info "Logstash config testi başarılı"
+      return 0
+    else
+      log_err "Logstash config testi başarısız"
+      return 1
+    fi
+  else
+    log_warn "Logstash ikili dosyası bulunamadı; config testi atlanıyor"
+    return 2
+  fi
+}
+
+check_system_settings() {
+  local ok=0
+  if sysctl -n vm.max_map_count | grep -q "262144"; then
+    log_info "vm.max_map_count doğru ayarlı"
+  else
+    log_warn "vm.max_map_count önerilen değere ayarlı değil"
+    ok=1
+  fi
+  if sudo -u elasticsearch bash -c 'ulimit -l' >/dev/null 2>&1; then
+    log_info "elasticsearch kullanıcısı için memlock limiti mevcut"
+  else
+    log_warn "elasticsearch kullanıcısı için memlock limiti tespit edilemedi veya ulimit komutu başarısız"
+    ok=1
+  fi
+  return $ok
+}
+
+verify_postinstall() {
+  log_info "Kurulum sonrası doğrulamalar başlatılıyor (maksimum deneme: $VERIFY_RETRIES)."
+  local tries=0
+  local all_ok=0
+  while [ $tries -lt $VERIFY_RETRIES ]; do
+    tries=$((tries+1))
+    log_debug "Doğrulama denemesi: $tries/$VERIFY_RETRIES"
+    all_ok=0
+    check_service_active elasticsearch || all_ok=1
+    check_service_active kibana || all_ok=1
+    check_service_active logstash || all_ok=1
+    check_es_health || all_ok=1
+    check_kibana_up || true
+    check_logstash_config || true
+    check_system_settings || true
+    if [ $all_ok -eq 0 ]; then
+      log_info "Tüm kritik doğrulamalar başarılı"
+      return 0
+    fi
+    log_warn "Doğrulama başarısız; $VERIFY_WAIT saniye sonra tekrar denenecek..."
+    sleep $VERIFY_WAIT
+  done
+  log_err "Kurulum sonrası doğrulamalar beklenen sonucu vermedi"
+  return 1
+}
+
+# Sadece DRY_RUN değilse ve doğrulama kapatılmadıysa çalıştır
+if [ "$DRY_RUN" = false ] && [ "$VERIFY" = true ]; then
+  if ! verify_postinstall; then
+    log_warn "Doğrulama adımlarından bazıları başarısız oldu. Lütfen logları inceleyin veya README'deki manuel kontrolleri uygulayın."
+  fi
+fi
 
 echo "Kurulum tamamlandı. Elastic Stack (Elasticsearch, Kibana, Logstash) çalışır durumda."
 echo "Kibana erişimi: https://<SunucuIP>:5601 - Elastic kullanıcı adı: elastic"
