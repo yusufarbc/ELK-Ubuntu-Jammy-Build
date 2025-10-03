@@ -16,6 +16,7 @@ def test_kaspersky_parsed():
     e = kasp[0]
     assert e.get('host', {}).get('name') == 'host01.corp.local'
     assert e.get('threat', {}).get('name') == 'Malicious.File.Example'
+    assert '@timestamp' in e, 'Kaspersky event should have @timestamp'
 
 
 def test_asa_ports_int():
@@ -26,6 +27,7 @@ def test_asa_ports_int():
         asa = a.get('asa', {})
         assert isinstance(asa.get('src_port'), int)
         assert isinstance(asa.get('dst_port'), int)
+        assert '@timestamp' in a, 'ASA event should have @timestamp (from syslog header)'
 
 
 def test_fortigate_ports_int():
@@ -35,3 +37,5 @@ def test_fortigate_ports_int():
     fg = fgs[0]
     assert isinstance(fg.get('source', {}).get('port'), int)
     assert isinstance(fg.get('destination', {}).get('port'), int)
+    assert '@timestamp' in fg, 'FortiGate event should have @timestamp (from date+time)'
+    assert fg.get('network', {}).get('transport') in ('tcp', 'udp', '6', '17'), 'network.transport mapping present'

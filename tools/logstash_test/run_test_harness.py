@@ -10,6 +10,8 @@ Outputs JSON lines to tools/logstash_test/output/output.json and prints a small 
 import re
 import json
 from pathlib import Path
+from datetime import datetime
+import calendar
 
 ROOT = Path(__file__).resolve().parent
 SAMPLES = ROOT / 'samples'
@@ -17,6 +19,9 @@ OUT = ROOT / 'output' / 'output.json'
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
 asa_re = re.compile(r"%ASA-[0-9]+-[0-9]+: Built (?P<direction>\w+) (?P<transport>\w+) connection (?P<conn_id>\d+) for (?:[^:]+:)?(?P<src_ip>\d+\.\d+\.\d+\.\d+)/(?P<src_port>\d+) to (?:[^:]+:)?(?P<dst_ip>\d+\.\d+\.\d+\.\d+)/(?P<dst_port>\d+)")
+
+# syslog header like: 'Oct  3 12:34:56 hostname rest'
+syslog_header_re = re.compile(r'^(?P<ts>\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<rest>.*)$')
 
 # FortiGate kv: simple key=value with whitespace separators; values may be quoted
 # Use double-quoted raw string so single quotes inside pattern don't need escaping
@@ -41,6 +46,14 @@ for path in SAMPLES.glob('*'):
                 event.setdefault('threat', {})['severity'] = parsed['ThreatSeverity']
             event['event.module'] = 'kaspersky'
             event['event.dataset'] = 'kaspersky.av'
+            # timestamp normalization if present
+            if 'Timestamp' in parsed:
+                try:
+                    # expect ISO8601
+                    dt = datetime.fromisoformat(parsed['Timestamp'].replace('Z', '+00:00'))
+                    event['@timestamp'] = dt.isoformat()
+                except Exception:
+                    pass
         except Exception as e:
             event['json_error'] = str(e)
         results.append(event)
@@ -51,8 +64,23 @@ for path in SAMPLES.glob('*'):
         line = line.rstrip('\n')
         event = {'message': line, '@source_file': str(path.name)}
 
-        # ASA detection
-        m = asa_re.search(line)
+        # ASA detection (handle syslog header)
+        sm = syslog_header_re.search(line)
+        rest_line = line
+        if sm:
+            hdr = sm.groupdict()
+            rest_line = hdr['rest']
+            event.setdefault('host', {})['name'] = hdr['host']
+            # Try to build @timestamp using current year
+            try:
+                year = datetime.utcnow().year
+                dt = datetime.strptime(f"{hdr['ts']} {year}", "%b %d %H:%M:%S %Y")
+                # convert to ISO
+                event['@timestamp'] = dt.isoformat()
+            except Exception:
+                pass
+
+        m = asa_re.search(rest_line)
         if m:
             event['event.module'] = 'cisco_asa'
             event['event.dataset'] = 'cisco.asa'
@@ -105,15 +133,26 @@ for path in SAMPLES.glob('*'):
                 except Exception:
                     event.setdefault('destination', {})['port'] = kvs.get('dstport')
             if 'proto' in kvs:
-                try:
-                    event['network'] = {'transport': kvs.get('proto')}
-                except Exception:
-                    event['network'] = {'transport': kvs.get('proto')}
+                # map numeric proto to transport name when possible
+                proto = kvs.get('proto')
+                if proto in ('6', '06'):
+                    event.setdefault('network', {})['transport'] = 'tcp'
+                elif proto in ('17',):
+                    event.setdefault('network', {})['transport'] = 'udp'
+                else:
+                    event.setdefault('network', {})['transport'] = proto
             if 'duration' in kvs:
                 try:
                     event['duration'] = int(kvs.get('duration'))
                 except Exception:
                     event['duration'] = kvs.get('duration')
+            # Build @timestamp if date+time fields exist
+            if 'date' in kvs and 'time' in kvs:
+                try:
+                    dt = datetime.fromisoformat(f"{kvs.get('date')}T{kvs.get('time')}")
+                    event['@timestamp'] = dt.isoformat()
+                except Exception:
+                    pass
             # keep original kvs for debugging
             event.update(kvs)
             results.append(event)
