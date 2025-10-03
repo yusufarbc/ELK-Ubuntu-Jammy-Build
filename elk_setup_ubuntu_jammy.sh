@@ -124,23 +124,38 @@ systemctl daemon-reload
 systemctl enable elasticsearch
 systemctl start elasticsearch
 
-# Elastic kullanıcısı şifresini sağlamadıysanız otomatik oluşturmayı deneyin
+# Parola kaynağı tercihi: argüman -> ELASTIC_PASSWORD env -> /run/secrets/elastic_password
+# Eğer CLI ile verildiyse ELASTIC_PW zaten setlidir. Tercih sırası: ELASTIC_PW (arg) üstte kalır.
+if [ -z "${ELASTIC_PW-}" ] && [ -n "${ELASTIC_PASSWORD-}" ]; then
+  ELASTIC_PW="$ELASTIC_PASSWORD"
+fi
+if [ -z "${ELASTIC_PW-}" ] && [ -r /run/secrets/elastic_password ]; then
+  ELASTIC_PW="$(cat /run/secrets/elastic_password)"
+fi
+
 if [ -n "${ELASTIC_PW-}" ]; then
-  echo "[*] ELASTIC_PW sağlandı via arg/env, kullanılıyor."
+  echo "[*] Elastic parola kaynağı tespit edildi (env/secret/arg). Parola görüntülenmeyecektir."
 else
-  echo "[*] Elastic kullanıcı şifresi sıfırlanmaya çalışılıyor (otomatik)..."
+  echo "[*] Elastic kullanıcı şifresi yok — otomatik oluşturma deneniyor..."
   if ELASTIC_PW_OUT=$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null) && echo "$ELASTIC_PW_OUT" | grep -q "New value:"; then
     ELASTIC_PW="$(echo "$ELASTIC_PW_OUT" | awk '/New value:/ {print $NF}')"
-    echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
-    else
-      if [ "$NONINTERACTIVE" = true ]; then
-        echo "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen ELASTIC_PW ortam değişkeni veya --password arg verin." >&2
-        exit 1
-      fi
-      echo "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
-      read -rsp "Elastic kullanıcısı için yeni parola girin: " ELASTIC_PW
-      echo
+    # Güvenli saklama: sadece root okur
+    echo "$ELASTIC_PW" > /root/.elastic_pw
+    chmod 600 /root/.elastic_pw
+    echo "[*] Yeni 'elastic' parolası /root/.elastic_pw dosyasına kaydedildi (chmod 600)."
+  else
+    if [ "$NONINTERACTIVE" = true ]; then
+      echo "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen ELASTIC_PASSWORD ortam değişkeni veya --password arg verin." >&2
+      exit 1
     fi
+    echo "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
+    read -rsp "Elastic kullanıcısı için yeni parola girin: " ELASTIC_PW
+    echo
+    # manuel girildiğinde de güvenli dosyaya kaydet
+    echo "$ELASTIC_PW" > /root/.elastic_pw
+    chmod 600 /root/.elastic_pw
+    echo "[*] Girilen parola /root/.elastic_pw dosyasına kaydedildi (chmod 600)."
+  fi
 fi
 
 # Kibana enrollment token al
