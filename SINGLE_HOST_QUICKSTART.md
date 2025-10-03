@@ -1,3 +1,5 @@
+**Daha fazla mimari ve pipeline örneği için:** [CONFIGURATIONS.md](CONFIGURATIONS.md)
+
 Single-host ELK Quickstart (Ubuntu Jammy)
 ======================================
 

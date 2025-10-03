@@ -1,3 +1,8 @@
+# İlgili Belgeler
+
+- [Hızlı Kurulum ve Doğrulama Adımları](SINGLE_HOST_QUICKSTART.md)
+- [Detaylı Konfigürasyon ve Pipeline Örnekleri](CONFIGURATIONS.md)
+
 # Hızlı Kurulum
 
 1. Depoyu klonlayın:

@@ -1,5 +1,9 @@
 # Konfigürasyon Rehberi — Agentless Elastic SIEM (Ubuntu Jammy, single-host) — Orta Ölçek (≈100 GB/gün)
 
+**Kurulum ve hızlı doğrulama için:** [SINGLE_HOST_QUICKSTART.md](SINGLE_HOST_QUICKSTART.md)
+
+# Konfigürasyon Rehberi — Agentless Elastic SIEM (Ubuntu Jammy, single-host) — Orta Ölçek (≈100 GB/gün)
+
 Bu doküman, tek bir Ubuntu LTS (Jammy) sunucusu üzerinde apt tabanlı, ajan kullanılmayan Elastic SIEM kurulumu için hazırlanan konfigürasyon notlarını içerir. Amaç: uygulanabilir, düşük maliyetli ve sürdürülebilir bir on-prem SIEM kurulum rehberi sunmaktır.
 
 Not: Bu rehber "örnek / öneri" niteliğindedir. Parolalar, IP'ler ve sertifikalar ortamınıza göre özelleştirilmelidir.
