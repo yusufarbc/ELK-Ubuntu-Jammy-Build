@@ -6,7 +6,7 @@ services:
     container_name: es01
     environment:
       - "discovery.type=single-node"
-      - "ES_JAVA_OPTS=-Xms32g -Xmx32g"
+      - 'ES_JAVA_OPTS=${ES_JAVA_OPTS:-"-Xms1g -Xmx1g"}'
       - "xpack.security.enabled=true"
       - "xpack.security.transport.ssl.enabled=true"
     ulimits:
@@ -36,7 +36,8 @@ services:
       - ./certs:/usr/share/logstash/config/certs:ro
     ports:
       - 5044:5044    # beats / winlogbeat
-      - 5514:5514    # syslog (tcp/udp)
+      - 5514:5514/tcp
+      - 5514:5514/udp
     restart: unless-stopped
 
   kibana:

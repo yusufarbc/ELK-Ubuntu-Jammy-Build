@@ -23,6 +23,14 @@ DEBIAN_FRONTEND=noninteractive apt install -y elasticsearch
 # Elasticsearch ayarları: network.host herkese açık, single-node mode
 echo "[*] Elasticsearch yapılandırılıyor..."
 sed -i 's|#network.host: .*|network.host: 0.0.0.0|' /etc/elasticsearch/elasticsearch.yml
+## Elasticsearch ayarlari: network.host herkese acik, single-node mode
+echo "[*] Elasticsearch yapılandırılıyor..."
+# If network.host line exists (commented or not), replace it; otherwise append
+if grep -q "^\s*#\?\s*network.host" /etc/elasticsearch/elasticsearch.yml; then
+  sed -ri "s|^\s*#?\s*network.host:.*|network.host: 0.0.0.0|" /etc/elasticsearch/elasticsearch.yml
+else
+  echo "network.host: 0.0.0.0" >> /etc/elasticsearch/elasticsearch.yml
+fi
 if ! grep -q "^discovery.type" /etc/elasticsearch/elasticsearch.yml; then
   echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
 fi
@@ -34,8 +42,16 @@ systemctl start elasticsearch
 
 # Elastic kullanıcısı şifresini resetle (random) ve al
 echo "[*] Elastic kullanıcı şifresi sıfırlanıyor..."
-ELASTIC_PW="$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null | awk '/New value:/ {print $NF}')"
 echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
+# Elastic kullanicisi sifresini resetle (random) ve al; fallback to manual prompt if command fails
+if ELASTIC_PW_OUT=$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null) && echo "$ELASTIC_PW_OUT" | grep -q "New value:"; then
+  ELASTIC_PW="$(echo "$ELASTIC_PW_OUT" | awk '/New value:/ {print $NF}')"
+  echo "Yeni 'elastic' sifresi: $ELASTIC_PW"
+else
+  echo "Otomatik sifre sifirlama basarisiz oldu veya desteklenmiyor. Lutfen manuel olarak bir parola belirleyin." >&2
+  read -rsp "Elastic kullanicisi icin yeni parola girin: " ELASTIC_PW
+  echo
+fi
 
 # Kibana enrollment token al
 echo "[*] Kibana için enrollment token alınıyor..."
