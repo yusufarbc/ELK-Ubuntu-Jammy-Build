@@ -1,15 +1,47 @@
 #!/bin/bash
 # Elastic SIEM On-Prem Kurulum Scripti
 
+# Hızlı çıkış ve güvenli hata işleme
+set -euo pipefail
+IFS=$'\n\t'
+
+# Çıkış raporu için trap
+trap 'rc=$?; if [ $rc -ne 0 ]; then echo "[HATA] Betik $rc koduyla sonlandı" >&2; fi; exit $rc' EXIT
+
+# Kayıt (log) yardımcıları
+DEBUG=${DEBUG:-false}
+log() { local lvl="$1"; shift; printf "[%s] %s\n" "$lvl" "$*"; }
+log_info() { log "BILGI" "$*"; }
+log_warn() { log "UYARI" "$*"; }
+log_err() { log "HATA" "$*"; }
+log_debug() { if [ "${DEBUG}" = "true" ]; then log "DEBUG" "$*"; fi }
+
+# retry yardımcı fonksiyonu: retry <max> <wait> <komut...>
+retry() {
+  local max=${1:-5} wait=${2:-5}; shift 2
+  local n=0
+  until "$@"; do
+    n=$((n+1))
+    if [ "$n" -ge "$max" ]; then
+      log_err "Komut $n denemeden sonra başarısız oldu: $*"
+      return 1
+    fi
+    log_warn "Komut başarısız oldu; tekrar deneniyor ($n/$max) ${wait}s sonra..."
+    sleep "$wait"
+  done
+}
+
 ### 1. Sistem Hazırlığı
 if [ "$(id -u)" != "0" ]; then
   echo "Lütfen bu scripti root olarak çalıştırın." >&2
   exit 1
 fi
 
-## CLI arg handling: --password/-p and --non-interactive
+## CLI arg işleme: --password/-p ve --non-interactive
 NONINTERACTIVE=false
 DRY_RUN=false
+TOKEN_RETRIES=24
+TOKEN_WAIT=5
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -p|--password)
@@ -18,10 +50,22 @@ while [ "$#" -gt 0 ]; do
       ;;
     --non-interactive)
       NONINTERACTIVE=true
-      shift
+        shift
       ;;
     --dry-run)
       DRY_RUN=true
+      shift
+      ;;
+    --token-retries)
+      TOKEN_RETRIES="$2"
+      shift 2
+      ;;
+    --token-wait)
+      TOKEN_WAIT="$2"
+      shift 2
+      ;;
+    --debug)
+      DEBUG=true
       shift
       ;;
     *)
@@ -35,17 +79,17 @@ if [ "$NONINTERACTIVE" = true ]; then
   APT_NONINTERACTIVE_OPTS='-y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"'
 fi
 
-echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
+log_info "APT güncelleniyor ve gerekli paketler kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
   if [ "$NONINTERACTIVE" = true ]; then
-    apt-get update -q
-    apt-get install $APT_NONINTERACTIVE_OPTS apt-transport-https curl gnupg jq
+    retry 5 5 apt-get update -q
+    retry 5 10 apt-get install $APT_NONINTERACTIVE_OPTS apt-transport-https curl gnupg jq
   else
-    apt update
-    apt install -y apt-transport-https curl gnupg jq
+    retry 5 5 apt update
+    retry 5 10 apt install -y apt-transport-https curl gnupg jq
   fi
 else
-  echo "DRY RUN: Skipping apt update/install"
+  log_info "DRY RUN: apt update/install atlanıyor"
 fi
 
 # Elastic APT deposunu ekle
@@ -55,15 +99,19 @@ echo "deb [signed-by=/usr/share/keyrings/elastic.gpg] https://artifacts.elastic.
 apt update
 
 ### 2. Elasticsearch Kurulumu
-echo "[*] Elasticsearch kuruluyor..."
-DEBIAN_FRONTEND=noninteractive apt install -y elasticsearch
+log_info "Elasticsearch kuruluyor..."
+if [ "$DRY_RUN" = false ]; then
+  retry 3 20 DEBIAN_FRONTEND=noninteractive apt install -y elasticsearch
+else
+  log_info "DRY RUN: apt install -y elasticsearch atlandı"
+fi
 
-# Elasticsearch ayarları: network.host herkese açık, single-node mode
+# Elasticsearch ayarları: network.host herkese açık, single-node modu
 echo "[*] Elasticsearch yapılandırılıyor..."
 sed -i 's|#network.host: .*|network.host: 0.0.0.0|' /etc/elasticsearch/elasticsearch.yml
 ## Elasticsearch ayarlari: network.host herkese acik, single-node mode
 echo "[*] Elasticsearch yapılandırılıyor..."
-# If network.host line exists (commented or not), replace it; otherwise append
+# Eğer network.host satırı varsa (yoruma alınmış olsa da) değiştir; yoksa satırı ekle
 if grep -q "^\s*#\?\s*network.host" /etc/elasticsearch/elasticsearch.yml; then
   sed -ri "s|^\s*#?\s*network.host:.*|network.host: 0.0.0.0|" /etc/elasticsearch/elasticsearch.yml
 else
@@ -73,14 +121,14 @@ if ! grep -q "^discovery.type" /etc/elasticsearch/elasticsearch.yml; then
   echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
 fi
 
-# Sistem tuning: single-node için rekomendasyonlar
+# Sistem ayarları (tuning): single-node için önerilen değişiklikler
 echo "[*] Sistem ayarları uygulanıyor (vm.max_map_count, limits)..."
-# vm.max_map_count
+# vm.max_map_count (Elasticsearch için önerilen değer)
 if ! sysctl -n vm.max_map_count | grep -q "262144"; then
   echo "vm.max_map_count=262144" > /etc/sysctl.d/99-elasticsearch.conf
   sysctl -w vm.max_map_count=262144 || true
 fi
-# limits for elasticsearch user
+# elasticsearch kullanıcısı için limits ayarları
 cat > /etc/security/limits.d/99-elasticsearch.conf <<'LIMITS'
 elasticsearch soft nofile 65536
 elasticsearch hard nofile 65536
@@ -88,7 +136,7 @@ elasticsearch soft memlock unlimited
 elasticsearch hard memlock unlimited
 LIMITS
 
-# Configure JVM heap to be ~50% of RAM (capped at 32768m)
+# JVM heap'i yaklaşık RAM'in %50'si olarak ayarla (maksimum 32768m olarak sınırla)
 echo "[*] Elasticsearch JVM heap hesaplanıyor ve systemd override oluşturuluyor..."
 if [ -r /proc/meminfo ]; then
   MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
@@ -112,7 +160,7 @@ Environment="ES_JAVA_OPTS=-Xms${HEAP_MB}m -Xmx${HEAP_MB}m"
 LimitMEMLOCK=infinity
 EOF
 
-# Ensure bootstrap.memory_lock is set in elasticsearch.yml
+# Elasticsearch için bootstrap.memory_lock ayarının bulunduğundan emin ol
 if ! grep -q "^bootstrap.memory_lock" /etc/elasticsearch/elasticsearch.yml; then
   echo "bootstrap.memory_lock: true" >> /etc/elasticsearch/elasticsearch.yml
 else
@@ -134,64 +182,61 @@ if [ -z "${ELASTIC_PW-}" ] && [ -r /run/secrets/elastic_password ]; then
 fi
 
 if [ -n "${ELASTIC_PW-}" ]; then
-  echo "[*] Elastic parola kaynağı tespit edildi (env/secret/arg). Parola görüntülenmeyecektir."
+  log_info "Elastic parola kaynağı tespit edildi (env/secret/arg). Parola görüntülenmeyecektir."
 else
-  echo "[*] Elastic kullanıcı şifresi yok — otomatik oluşturma deneniyor..."
+  log_info "Elastic kullanıcı şifresi yok — otomatik oluşturma deneniyor..."
   if ELASTIC_PW_OUT=$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null) && echo "$ELASTIC_PW_OUT" | grep -q "New value:"; then
     ELASTIC_PW="$(echo "$ELASTIC_PW_OUT" | awk '/New value:/ {print $NF}')"
     # Güvenli saklama: sadece root okur
     echo "$ELASTIC_PW" > /root/.elastic_pw
     chmod 600 /root/.elastic_pw
-    echo "[*] Yeni 'elastic' parolası /root/.elastic_pw dosyasına kaydedildi (chmod 600)."
+    log_info "[*] Yeni 'elastic' parolası /root/.elastic_pw dosyasına kaydedildi (chmod 600)."
   else
     if [ "$NONINTERACTIVE" = true ]; then
-      echo "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen ELASTIC_PASSWORD ortam değişkeni veya --password arg verin." >&2
+      log_err "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen ELASTIC_PASSWORD ortam değişkeni veya --password arg verin."
       exit 1
     fi
-    echo "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
+    log_err "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
     read -rsp "Elastic kullanıcısı için yeni parola girin: " ELASTIC_PW
     echo
     # manuel girildiğinde de güvenli dosyaya kaydet
-    echo "$ELASTIC_PW" > /root/.elastic_pw
+    printf '%s' "$ELASTIC_PW" > /root/.elastic_pw
     chmod 600 /root/.elastic_pw
-    echo "[*] Girilen parola /root/.elastic_pw dosyasına kaydedildi (chmod 600)."
+    log_info "[*] Girilen parola /root/.elastic_pw dosyasına kaydedildi (chmod 600)."
   fi
 fi
 
-# Try to create Kibana enrollment token, but wait for ES to be up/healthy first.
-echo "[*] Kibana enrollment token oluşturulmaya çalışılıyor (bekleniyor: Elasticsearch sağlıklı olana kadar)..."
+log_info "Kibana enrollment token oluşturulmaya çalışılıyor (Elasticsearch sağlıklı olana kadar beklenecek)..."
 KIBANA_TOKEN=""
-MAX_RETRIES=24   # ~2 minutes (24*5s)
-RETRY_SLEEP=5
-for i in $(seq 1 $MAX_RETRIES); do
-  # check if service is active
+for i in $(seq 1 "$TOKEN_RETRIES"); do
+  # Servisin aktif olup olmadığını kontrol et
   if systemctl is-active --quiet elasticsearch; then
-    # If ELASTIC_PW provided, try to check cluster health using it
+    # ELASTIC_PW sağlandıysa, onu kullanarak cluster sağlık durumunu kontrol et
     if [ -n "${ELASTIC_PW-}" ]; then
       HEALTH=$(curl -s -u elastic:"$ELASTIC_PW" -k https://localhost:9200/_cluster/health?pretty || true)
     else
-      # try unauthenticated local check (may fail if security enabled)
+      # yetkisiz (authsuz) yerel kontrol dene (güvenlik etkinse başarısız olabilir)
       HEALTH=$(curl -s -k https://localhost:9200/_cluster/health?pretty || true)
     fi
 
     if echo "$HEALTH" | grep -q "status"; then
-      # attempt to create enrollment token
+      # enrollment token oluşturmayı dene
       if KIBANA_TOKEN_OUT=$( /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana 2>/dev/null ) ; then
         KIBANA_TOKEN="$KIBANA_TOKEN_OUT"
         break
       fi
     fi
   else
-    echo "[!] Elasticsearch service not active yet (attempt $i/$MAX_RETRIES)."
+    log_warn "Elasticsearch servisi henüz aktif değil (deneme $i/$TOKEN_RETRIES)."
   fi
-  sleep $RETRY_SLEEP
+  sleep $TOKEN_WAIT
 done
 
 if [ -n "$KIBANA_TOKEN" ]; then
-  echo "Kibana Enrollment Token (kopyalayın ve Kibana enrollment'ta kullanın):"
+  echo "Kibana Enrollment Token'ı (kopyalayın ve Kibana kayıt işlemi sırasında kullanın):"
   echo "$KIBANA_TOKEN"
 else
-  echo "[ERROR] Kibana enrollment token oluşturulamadı." >&2
+  echo "[HATA] Kibana enrollment tokenı oluşturulamadı." >&2
   echo "Aşağıdaki komutları manuel olarak çalıştırıp hataları inceleyin:" >&2
   echo "  sudo systemctl status elasticsearch" >&2
   echo "  sudo journalctl -u elasticsearch -b --no-pager | tail -n 50" >&2
@@ -199,15 +244,15 @@ else
   echo "  sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana" >&2
 fi
 
-# (Not: Yukarıdaki token, Kibana'yı elle enroll etmek için kullanılacak. 
-# Script, Kibana enrollment işlemini otomatik yapmamaktadır.)
+# (Not: Yukarıdaki token, Kibana'yı elle kayıt (enroll) etmek için kullanılacak.)
+# Script, Kibana enrollment işlemini otomatik yapmamaktadır.
 
 ### 3. Kibana Kurulumu
-echo "[*] Kibana kuruluyor..."
+log_info "Kibana kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
-  apt install -y kibana
+  retry 3 20 apt install -y kibana
 else
-  echo "DRY RUN: apt install -y kibana (skipped)"
+  log_info "DRY RUN: apt install -y kibana atlandı"
 fi
 
 # Kibana yapılandır: dış erişim izni
@@ -226,15 +271,19 @@ sleep 20
 
 systemctl start kibana
 
-echo "Kibana başarılı bir şekilde başlatıldı. İlk kurulum için tarayıcıdan Kibana'ya erişip enrollment token ve verification code adımlarını tamamlayın."
-echo "Elastic 'elastic' kullanıcı yeni şifresi: $ELASTIC_PW"
+log_info "Kibana başarılı bir şekilde başlatıldı. Tarayıcıdan Kibana'ya erişip kayıt (enroll) adımlarını tamamlayın."
+if [ -f /root/.elastic_pw ]; then
+  log_info "Elastic 'elastic' parolası /root/.elastic_pw dosyasına kaydedildi (sadece root erişimli)."
+else
+  log_info "Elastic 'elastic' parolası ortamda sağlandı veya manuel olarak belirlendi (parola konsolda gösterilmeyecektir)."
+fi
 
 ### 4. Logstash Kurulumu ve Ayarı
-echo "[*] Logstash kuruluyor..."
+log_info "Logstash kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
-  apt install -y logstash
+  retry 3 20 apt install -y logstash
 else
-  echo "DRY RUN: apt install -y logstash (skipped)"
+  log_info "DRY RUN: apt install -y logstash atlandı"
 fi
 
 # Basit bir Logstash pipeline oluştur
@@ -283,4 +332,4 @@ systemctl start logstash
 
 echo "Kurulum tamamlandı. Elastic Stack (Elasticsearch, Kibana, Logstash) çalışır durumda."
 echo "Kibana erişimi: https://<SunucuIP>:5601 - Elastic kullanıcı adı: elastic"
-echo "NOT: Kibana ilk açılışta Enrollment Token isteyecektir, yukarıda üretilen tokenı kullanınız."
+echo "UYARI: Kibana ilk açılışta Enrollment Token isteyecektir; yukarıda üretilen token'ı kullanın."
