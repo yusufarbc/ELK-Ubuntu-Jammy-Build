@@ -158,10 +158,46 @@ else
   fi
 fi
 
-# Kibana enrollment token al
-echo "[*] Kibana için enrollment token alınıyor..."
-KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)"
-echo "Kibana Enrollment Token: $KIBANA_TOKEN"
+# Try to create Kibana enrollment token, but wait for ES to be up/healthy first.
+echo "[*] Kibana enrollment token oluşturulmaya çalışılıyor (bekleniyor: Elasticsearch sağlıklı olana kadar)..."
+KIBANA_TOKEN=""
+MAX_RETRIES=24   # ~2 minutes (24*5s)
+RETRY_SLEEP=5
+for i in $(seq 1 $MAX_RETRIES); do
+  # check if service is active
+  if systemctl is-active --quiet elasticsearch; then
+    # If ELASTIC_PW provided, try to check cluster health using it
+    if [ -n "${ELASTIC_PW-}" ]; then
+      HEALTH=$(curl -s -u elastic:"$ELASTIC_PW" -k https://localhost:9200/_cluster/health?pretty || true)
+    else
+      # try unauthenticated local check (may fail if security enabled)
+      HEALTH=$(curl -s -k https://localhost:9200/_cluster/health?pretty || true)
+    fi
+
+    if echo "$HEALTH" | grep -q "status"; then
+      # attempt to create enrollment token
+      if KIBANA_TOKEN_OUT=$( /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana 2>/dev/null ) ; then
+        KIBANA_TOKEN="$KIBANA_TOKEN_OUT"
+        break
+      fi
+    fi
+  else
+    echo "[!] Elasticsearch service not active yet (attempt $i/$MAX_RETRIES)."
+  fi
+  sleep $RETRY_SLEEP
+done
+
+if [ -n "$KIBANA_TOKEN" ]; then
+  echo "Kibana Enrollment Token (kopyalayın ve Kibana enrollment'ta kullanın):"
+  echo "$KIBANA_TOKEN"
+else
+  echo "[ERROR] Kibana enrollment token oluşturulamadı." >&2
+  echo "Aşağıdaki komutları manuel olarak çalıştırıp hataları inceleyin:" >&2
+  echo "  sudo systemctl status elasticsearch" >&2
+  echo "  sudo journalctl -u elasticsearch -b --no-pager | tail -n 50" >&2
+  echo "Manuel olarak token oluşturmak için (elasticsearch çalışır durumda olmalı):" >&2
+  echo "  sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana" >&2
+fi
 
 # (Not: Yukarıdaki token, Kibana'yı elle enroll etmek için kullanılacak. 
 # Script, Kibana enrollment işlemini otomatik yapmamaktadır.)
