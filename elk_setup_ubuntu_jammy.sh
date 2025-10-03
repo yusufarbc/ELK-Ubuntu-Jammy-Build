@@ -1,5 +1,5 @@
 #!/bin/bash
-# Elastic SIEM On-Prem Kurulum Scripti (Düzeltilmiş)
+# Elastic SIEM On-Prem Kurulum Scripti (Düzeltilmiş ve apt-get arg fix)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -55,10 +55,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-APT_NONINTERACTIVE_OPTS=''
+# --- APT seçenekleri (dizi olarak!) ---
+APT_OPTS=()
 if [ "$NONINTERACTIVE" = true ]; then
   export DEBIAN_FRONTEND=noninteractive
-  APT_NONINTERACTIVE_OPTS='-y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold'
+  APT_OPTS=(-y -q)
 fi
 
 # --- Sistem hazırlığı ---
@@ -66,7 +67,7 @@ log_info "APT güncelleniyor ve temel paketler kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
   if [ "$NONINTERACTIVE" = true ]; then
     retry 5 5 apt-get update -q
-    retry 5 10 apt-get install $APT_NONINTERACTIVE_OPTS apt-transport-https curl gnupg jq ca-certificates
+    retry 5 10 apt-get install "${APT_OPTS[@]}" apt-transport-https curl gnupg jq ca-certificates
   else
     retry 5 5 apt update
     retry 5 10 apt install -y apt-transport-https curl gnupg jq ca-certificates
@@ -86,7 +87,7 @@ retry 5 5 apt update
 log_info "Elasticsearch kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
   if [ "$NONINTERACTIVE" = true ]; then
-    retry 3 20 apt-get install $APT_NONINTERACTIVE_OPTS -y elasticsearch
+    retry 3 20 apt-get install "${APT_OPTS[@]}" elasticsearch
   else
     retry 3 20 apt install -y elasticsearch
   fi
@@ -206,7 +207,7 @@ fi
 log_info "Kibana kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
   if [ "$NONINTERACTIVE" = true ]; then
-    retry 3 20 apt-get install $APT_NONINTERACTIVE_OPTS -y kibana
+    retry 3 20 apt-get install "${APT_OPTS[@]}" kibana
   else
     retry 3 20 apt install -y kibana
   fi
@@ -232,7 +233,7 @@ log_info "Kibana başlatıldı. İlk açılışta Enrollment Token ve Verificati
 log_info "Logstash kuruluyor..."
 if [ "$DRY_RUN" = false ]; then
   if [ "$NONINTERACTIVE" = true ]; then
-    retry 3 20 apt-get install $APT_NONINTERACTIVE_OPTS -y logstash
+    retry 3 20 apt-get install "${APT_OPTS[@]}" logstash
   else
     retry 3 20 apt install -y logstash
   fi
