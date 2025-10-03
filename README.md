@@ -180,6 +180,3 @@ Güvenlik ve katkı:
 - Gerçek şifreleri ve sertifikaları repoya koymayın.
 - Üretimde TLS, erişim kontrolü ve secrets yönetimi uygulayın.
 
----
-
-Bu README kısa ve uygulanabilir bir quickstart/başlangıç rehberidir. Daha fazla sadeleştirme veya ayrıntı istiyorsanız belirtin, onu uygulayayım.
