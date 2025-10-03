@@ -30,3 +30,28 @@ CI (GitHub Actions):
 Notlar:
 
  - CI, harness'i çalıştırmadan önce `pip install pytest` yapar. Lokal makinenizde de pytest yoksa `pip install pytest` ile yükleyin.
+
+Cloud-init ve uzak deploy
+-------------------------
+
+İki hazır yol vardır:
+
+1) cloud-init (provider destekliyorsa)
+
+ - Dosya: `cloud-init/cloud-init.yml`
+ - Kullanım: Cloud sağlayıcınızın "user-data" veya "cloud-init" alanına `cloud-init/cloud-init.yml` içeriğini koyun ve `REPLACE_ME` yerine güçlü bir parola girin (veya sağlayıcının secrets mekanizmasını kullanın).
+
+2) Doğrudan SSH deploy
+
+ - Script: `deploy_remote.sh`
+ - Örnek kullanım:
+
+```bash
+# scp + ssh ile kopyala ve installer'ı non-interactive çalıştır
+./deploy_remote.sh root@1.2.3.4 --ssh-key /path/to/key --password 'SOME_STRONG_PW'
+```
+
+Script şu adımları yapar: repo'yu `/root/elk` olarak kopyalar ve uzak makinede `sudo bash /root/elk/elk_setup_ubuntu_jammy.sh --non-interactive --password 'PW'` çalıştırır.
+
+Güvenlik Notu: Parolaları komut satırında doğrudan vermek terminal geçmişinde saklanabilir. Mümkünse cloud provider secrets veya SSH agent/temporary env kullanın.
+

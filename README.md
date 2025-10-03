@@ -1,32 +1,38 @@
-# ELK-Ubuntu-Jammy-Build
+# ELK-Ubuntu-Jammy-Build — Single-host Ubuntu Jammy installer
 
-Bu repo, tek bir Ubuntu LTS sunucusu üzerinde Docker kullanmadan Elastic Stack 8.x (Elasticsearch, Kibana, Logstash) kurulumunu kolaylaştırmak için hazırlanmış örnek bir otomasyon scripti ve rehber içerir. Amaç: agentless log toplama mimarisi kurmak (Windows Event Forwarding + Winlogbeat, syslog ile Linux ve ağ cihazları, Kaspersky AV logları) ve Elastic Security ile temel güvenlik tespitleri üretmektir.
+Kısa: Bu repo, tek bir Ubuntu LTS sunucusuna (Docker kullanmadan) Elastic Stack 8.x (Basic lisans) kurmak için hazırlanmış, non-interactive bir kurulum scripti ve destekleyici Logstash pipeline'ları içerir. Amaç: agentless (WEF/WEC + Winlogbeat, rsyslog, Kaspersky) log toplama ile orta ölçekli kurumlar için düşük maliyetli SIEM kurmaktır.
 
-Dil: Türkçe
-
-Dosyalar
-- `elk_setup_ubuntu_jammy.sh` — Otomatik kurulum scripti (Ubuntu LTS). Script root olarak çalıştırılmalıdır.
-
-Not: Ek kullanım seçenekleri, CI ve otomasyon talimatları için `README_EXTRAS.md` dosyasına bakın.
+Ana bileşenler
+- `elk_setup_ubuntu_jammy.sh` — apt tabanlı, non-interactive kurulum scripti (Elasticsearch, Kibana, Logstash) ve temel sistem tuning (vm.max_map_count, limits, systemd override).
+- `logstash/pipeline/` — input/filter/output örnekleri ve ECS uyumlu eşlemeler.
+- `SINGLE_HOST_QUICKSTART.md` — adım adım hızlı kurulum ve doğrulama.
+- `cloud-init/` ve `deploy_remote.sh` — uzak provisioning için yardımcı materyaller.
 
 Hızlı başlangıç
 
 1) Script'i sunucuya kopyalayın ve çalıştırın (root/sudo):
 
 ```bash
-sudo bash ./elk_setup_ubuntu_jammy.sh
+sudo bash elk_setup_ubuntu_jammy.sh --non-interactive --password 'SOME_STRONG_PW'
 ```
 
-2) Script tamamlandığında ekranda `elastic` kullanıcısı için atanan parola ve (varsa) Kibana enrollment token bilgisi gösterilecektir. Kibana'yı açın: `https://<SUNUCU_IP>:5601` ve enrollment sürecini tamamlayın.
+2) Servisleri kontrol edin:
+
+```bash
+sudo systemctl status elasticsearch kibana logstash
+curl -u elastic:'SOME_STRONG_PW' -k https://localhost:9200/
+```
 
 Önemli notlar
-- Script temel bir kurulum yapar. Üretim ortamında TLS, kullanıcı yönetimi, backup (snapshot), monitoring (Metricbeat) ve güvenlik politikalarını el ile doğrulayın.
-- Script Logstash için varsayılan syslog portu `514` (TCP/UDP) ve Beats portu `5044` kullanır. Bu portlar root ayrıcalığı gerektirdiğinden sunucunuzda uygun firewall ve güvenlik düzenlemelerini yapın.
-- Basic lisans ile Kibana Connectors (e-posta/webhook) sınırlı olabilir. Harici bildirimler için deneme lisansı kullanabilir veya alternatif olarak ElastAlert gibi araçlarla webhook/email relay kurabilirsiniz.
+- Kurulum lab/single-host içindir. Üretim için çok düğümlü Elasticsearch (HA), TLS ve secrets management zorunludur.
+- Script Logstash için non-privileged syslog portu `5514` ve Beats portu `5044` kullanır.
 
-Mimari (özet)
+Detaylı rehber: `SINGLE_HOST_QUICKSTART.md` ve `README_EXTRAS.md`.
+```
+*.* @@SIEM_HOST_IP:5514   # @@ = TCP, tek @ olursa UDP
+```
 - Tek Ubuntu LTS sunucusu üzerinde Elasticsearch (tek düğüm/`single-node`), Kibana ve Logstash çalışır.
-- Windows logları: Domain içinde WEF (Windows Event Forwarding) kullanılarak bir WEC kolektöründe toplanır. Winlogbeat sadece WEC üzerine kurulur ve Logstash 5044'e gönderir.
+  - `input`: beats 5044, tcp/udp 5514
 - Linux / ağ cihazları: rsyslog/syslog-ng ile Logstash'ın dinlediği portlara log gönderilir (varsayılan script'te 514/tcp+udp veya 5514 tercih edilebilir).
 - Kaspersky: Kaspersky Security Center (KSC) üzerinden SIEM/syslog entegrasyonu etkinleştirilir; JSON veya key=value (structured) formatı önerilir.
 

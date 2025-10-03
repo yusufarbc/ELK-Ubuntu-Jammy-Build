@@ -9,7 +9,7 @@ Kullanım:
 - `examples/kql/saved_searches.md` -> Bazı KQL sorgu örnekleri.
 
 Helper scriptler:
-- `scripts/lab_start.sh` -> Sertifikaları üretir (gerekirse), `ELASTIC_PASSWORD` sorar ve `docker compose up -d` ile labı başlatır.
+- `scripts/lab_start.sh` -> Sertifikaları üretir (gerekirse) ve non-docker tek-host kurulum veya test talimatları verir.
 - `scripts/load_ilm_and_template.sh` -> ILM policy ve index template'i Elasticsearch'e yükler (ELASTIC_PASSWORD gerektirir).
 - `scripts/send_kaspersky_sample.sh` -> `examples/kaspersky/sample_kaspersky.json` içeriğini Logstash syslog portuna gönderir (test amaçlı).
 - `scripts/check_es_for_kaspersky.sh` -> Elasticsearch içinde parselenmiş Kaspersky eventlerini arar (ELASTIC_PASSWORD gerektirir).
@@ -34,22 +34,19 @@ chmod +x scripts/*.sh
 
 Logstash test harness (lokal pipeline tuning için)
 -----------------------------------------------
-Kısa: `tools/logstash_test` dizininde küçük bir Logstash konteyneri ile pipeline'ınızı dosya girişinden test edebilirsiniz.
+Kısa: `tools/logstash_test` dizininde Docker gerektirmeyen bir Python tabanlı test harness vardır. Bu harness ile Logstash filtrelerinizi yerel örnek loglarla hızlıca doğrulayabilirsiniz.
 
-1) Test harness başlatın (aynı makinede Docker kurulu olmalı):
+1) Test harness çalıştırma (Python 3 gerektirir):
 
 ```bash
 cd tools/logstash_test
-docker compose up --build
+python3 run_test_harness.py
 ```
 
 2) Çıktıyı kontrol edin:
 
 ```bash
-# Konteyner durduktan sonra
 cat tools/logstash_test/output/output.json
-# veya canlı stdout için container loglarını takip edin
-docker logs -f logstash_test
 ```
 
-Bu harness, `tools/logstash_test/pipeline/00-test.conf` içindeki basit JSON parse + fallback grok mantığını çalıştırır. Gerçek pipeline'ınızı buraya kopyalayıp adım adım düzenleyerek grok ve kv sonrasında `output` bölümünü test-output'a yönlendirip çıktıyı kontrol edebilirsiniz.
+Bu harness, `tools/logstash_test/pipeline/00-test.conf` içindeki örnek mantığı taklit eder; gerçek pipeline'ınızı test etmek için örnek dosyalarınızı `tools/logstash_test/samples/` içine koyup tekrar çalıştırın.

@@ -1,14 +1,14 @@
-# Konfigürasyon Rehberi — Agentless Elastic SIEM (Rocky Linux + Docker) — Orta Ölçek (≈100 GB/gün)
+# Konfigürasyon Rehberi — Agentless Elastic SIEM (Ubuntu Jammy, single-host) — Orta Ölçek (≈100 GB/gün)
 
-Bu doküman, verdiğiniz gereksinimler (Rocky Linux üzerinde Docker kullanarak, ajan kullanılmayan mimari, günlük ≈100 GB log) doğrultusunda hazırlanan ayrıntılı konfigürasyon notlarını içerir. Amaç: hızlıca uygulayabileceğiniz, üretime yönelik öneriler ve hazır snippet'ler sunmaktır.
+Bu doküman, tek bir Ubuntu LTS (Jammy) sunucusu üzerinde apt tabanlı, ajan kullanılmayan Elastic SIEM kurulumu için hazırlanan konfigürasyon notlarını içerir. Amaç: uygulanabilir, düşük maliyetli ve sürdürülebilir bir on-prem SIEM kurulum rehberi sunmaktır.
 
 Not: Bu rehber "örnek / öneri" niteliğindedir. Parolalar, IP'ler ve sertifikalar ortamınıza göre özelleştirilmelidir.
 
 ## İçerik
 - Özet ve mimari bileşenleri
 - Sistem / kernel / JVM tuning
-- Docker & Docker Compose temel ayarları (kaynak sınırları, volume mapping)
-- Elasticsearch (container) için production konfigürasyon snippetleri
+- Sistem / kernel / JVM tuning
+- Elasticsearch (paket/tabanlı) için production konfigürasyon snippetleri
 - Logstash pipeline örnekleri (WEF/Winlogbeat, Syslog, Kaspersky)
 - Winlogbeat (WEC kolektör) ve rsyslog örnekleri
 - ILM ve index template örnekleri
@@ -24,7 +24,7 @@ Not: Bu rehber "örnek / öneri" niteliğindedir. Parolalar, IP'ler ve sertifika
 - Depolama: NVMe SSD (Elasticsearch data için özel partition/volume). Logstash için ayrı küçük SSD/volume önerilir.
 
 ## 2. Sistem ve Kernel Tuning (Rocky Linux host)
-Aşağıdaki ayarları host seviyesinde kalıcı olarak uygulayın:
+ Aşağıdaki ayarları host seviyesinde kalıcı olarak uygulayın (installer script de bazılarını otomatik ayarlar):
 
 ```bash
 # vm.max_map_count (Elasticsearch için)
@@ -41,60 +41,14 @@ echo -e "elasticsearch soft nofile 65536\nelasticsearch hard nofile 65536" | sud
 # ulimit / systemd ile çalıştıracaksanız unit içine ekleyin (ör: LimitNOFILE=65536)
 ```
 
-Ayrıca Docker host üzerinde yeterli IOPS/CPU rezerve edin; konteyner CPU ve bellek pinlemesi yapılacaktır.
+Bu sunucu doğrudan paket tabanlı Elastic bileşenlerini çalıştıracaktır; yeterli IOPS/CPU rezerve edin ve NVMe gibi hızlı disk kullanın.
 
-## 3. Docker & Compose Temel Öneriler
-- Docker versiyonu: son stabil (Engine + Compose CLI). Docker daemon için `default-ulimits` veya `--default-ulimit` ile nofile değeri yükseltilebilir.
-- Volume mapping: Elasticsearch veri dizinlerini doğrudan host mount haline getirin (bind mount) — overlayfs gecikmelerine dikkat.
+## 3. Paket tabanlı (apt) single-host öneriler
 
-docker-compose.yml'ye örnek kaynak kısıtlaması (özet):
+- Installer: repo kökündeki `elk_setup_ubuntu_jammy.sh` script'i apt tabanlı kurulum, sistem tuning ve minimal konfigürasyonları uygular. Non-interactive olarak `--non-interactive --password 'PW'` ile çalışır.
+- Paket tabanlı çalıştırmada JVM heap ve systemd override kullanarak heap ataması yapılmalı (installer bunu otomatik oluşturur).
+- Mutlaka host `vm.max_map_count` değeri set edilmeli (installer bunu uygular): `vm.max_map_count=262144`.
 
-```yaml
-version: '3.8'
-services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    environment:
-      - "ES_JAVA_OPTS=-Xms32g -Xmx32g"
-      - discovery.type=single-node
-    volumes:
-      - /mnt/nvme/elasticsearch/data:/usr/share/elasticsearch/data
-    deploy:
-      resources:
-        limits:
-          memory: 64G
-          cpus: '12.0'
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.11.0
-    environment:
-      - "LS_JAVA_OPTS=-Xms4g -Xmx4g"
-    volumes:
-      - ./logstash/pipeline:/usr/share/logstash/pipeline
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-          cpus: '4.0'
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
-    environment:
-      - ELASTICSEARCH_HOSTS=https://elasticsearch:9200
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: '2.0'
-```
-
-Notlar:
-- `deploy:` altındaki ayarlar Docker Swarm ile uyumludur; tek-node Docker Compose'da `mem_limit` ve `cpus` kullanabilirsiniz.
-- Mutlaka host `vm.max_map_count` değeri set edilmiş olmalı.
 
 ## 4. Elasticsearch Konfigürasyonu (Container içinde -> `elasticsearch.yml` snippet)
 Minimal üretim ayarları (örnek):

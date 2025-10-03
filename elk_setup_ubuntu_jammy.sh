@@ -7,11 +7,9 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
-echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
-apt update && apt install -y apt-transport-https curl gnupg jq
-
-# CLI arg handling: --password/-p and --non-interactive
+## CLI arg handling: --password/-p and --non-interactive
 NONINTERACTIVE=false
+DRY_RUN=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -p|--password)
@@ -22,11 +20,33 @@ while [ "$#" -gt 0 ]; do
       NONINTERACTIVE=true
       shift
       ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
     *)
       shift
       ;;
   esac
 done
+
+if [ "$NONINTERACTIVE" = true ]; then
+  export DEBIAN_FRONTEND=noninteractive
+  APT_NONINTERACTIVE_OPTS='-y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"'
+fi
+
+echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
+if [ "$DRY_RUN" = false ]; then
+  if [ "$NONINTERACTIVE" = true ]; then
+    apt-get update -q
+    apt-get install $APT_NONINTERACTIVE_OPTS apt-transport-https curl gnupg jq
+  else
+    apt update
+    apt install -y apt-transport-https curl gnupg jq
+  fi
+else
+  echo "DRY RUN: Skipping apt update/install"
+fi
 
 # Elastic APT deposunu ekle
 echo "[*] Elastic GPG anahtarı ekleniyor..."
@@ -53,6 +73,52 @@ if ! grep -q "^discovery.type" /etc/elasticsearch/elasticsearch.yml; then
   echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
 fi
 
+# Sistem tuning: single-node için rekomendasyonlar
+echo "[*] Sistem ayarları uygulanıyor (vm.max_map_count, limits)..."
+# vm.max_map_count
+if ! sysctl -n vm.max_map_count | grep -q "262144"; then
+  echo "vm.max_map_count=262144" > /etc/sysctl.d/99-elasticsearch.conf
+  sysctl -w vm.max_map_count=262144 || true
+fi
+# limits for elasticsearch user
+cat > /etc/security/limits.d/99-elasticsearch.conf <<'LIMITS'
+elasticsearch soft nofile 65536
+elasticsearch hard nofile 65536
+elasticsearch soft memlock unlimited
+elasticsearch hard memlock unlimited
+LIMITS
+
+# Configure JVM heap to be ~50% of RAM (capped at 32768m)
+echo "[*] Elasticsearch JVM heap hesaplanıyor ve systemd override oluşturuluyor..."
+if [ -r /proc/meminfo ]; then
+  MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+  if [ -n "$MEM_KB" ]; then
+    MEM_MB=$((MEM_KB/1024))
+    HEAP_MB=$((MEM_MB/2))
+    if [ "$HEAP_MB" -gt 32768 ]; then
+      HEAP_MB=32768
+    fi
+  else
+    HEAP_MB=1024
+  fi
+else
+  HEAP_MB=1024
+fi
+
+mkdir -p /etc/systemd/system/elasticsearch.service.d
+cat > /etc/systemd/system/elasticsearch.service.d/override.conf <<EOF
+[Service]
+Environment="ES_JAVA_OPTS=-Xms${HEAP_MB}m -Xmx${HEAP_MB}m"
+LimitMEMLOCK=infinity
+EOF
+
+# Ensure bootstrap.memory_lock is set in elasticsearch.yml
+if ! grep -q "^bootstrap.memory_lock" /etc/elasticsearch/elasticsearch.yml; then
+  echo "bootstrap.memory_lock: true" >> /etc/elasticsearch/elasticsearch.yml
+else
+  sed -ri "s|^\s*#?\s*bootstrap.memory_lock:.*|bootstrap.memory_lock: true|" /etc/elasticsearch/elasticsearch.yml
+fi
+
 # Elasticsearch servisini başlat
 systemctl daemon-reload
 systemctl enable elasticsearch
@@ -66,15 +132,15 @@ else
   if ELASTIC_PW_OUT=$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null) && echo "$ELASTIC_PW_OUT" | grep -q "New value:"; then
     ELASTIC_PW="$(echo "$ELASTIC_PW_OUT" | awk '/New value:/ {print $NF}')"
     echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
-  else
-    if [ "$NONINTERACTIVE" = true ]; then
-      echo "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen --password ile şifre sağlayın." >&2
-      exit 1
+    else
+      if [ "$NONINTERACTIVE" = true ]; then
+        echo "Otomatik şifre sıfırlama başarısız ve non-interactive modda işlem durduruluyor. Lütfen ELASTIC_PW ortam değişkeni veya --password arg verin." >&2
+        exit 1
+      fi
+      echo "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
+      read -rsp "Elastic kullanıcısı için yeni parola girin: " ELASTIC_PW
+      echo
     fi
-    echo "Otomatik şifre sıfırlama başarısız oldu; lütfen manuel olarak bir parola belirleyin." >&2
-    read -rsp "Elastic kullanıcısı için yeni parola girin: " ELASTIC_PW
-    echo
-  fi
 fi
 
 # Kibana enrollment token al
@@ -87,7 +153,11 @@ echo "Kibana Enrollment Token: $KIBANA_TOKEN"
 
 ### 3. Kibana Kurulumu
 echo "[*] Kibana kuruluyor..."
-apt install -y kibana
+if [ "$DRY_RUN" = false ]; then
+  apt install -y kibana
+else
+  echo "DRY RUN: apt install -y kibana (skipped)"
+fi
 
 # Kibana yapılandır: dış erişim izni
 echo "[*] Kibana yapılandırılıyor..."
@@ -110,7 +180,11 @@ echo "Elastic 'elastic' kullanıcı yeni şifresi: $ELASTIC_PW"
 
 ### 4. Logstash Kurulumu ve Ayarı
 echo "[*] Logstash kuruluyor..."
-apt install -y logstash
+if [ "$DRY_RUN" = false ]; then
+  apt install -y logstash
+else
+  echo "DRY RUN: apt install -y logstash (skipped)"
+fi
 
 # Basit bir Logstash pipeline oluştur
 cat <<'LSCONF' > /etc/logstash/conf.d/00-siem.conf
@@ -119,11 +193,11 @@ input {
     port => 5044
   }
   udp {
-    port => 514
+    port => 5514
     type => "syslog"
   }
   tcp {
-    port => 514
+    port => 5514
     type => "syslog"
   }
 }
