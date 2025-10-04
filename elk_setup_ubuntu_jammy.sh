@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Elastic Stack (Elasticsearch, Kibana, Logstash) ve Nginx kurulum scripti
+# Elastic Stack (Elasticsearch, Kibana, Logstash) kurulumu ve yapılandırması
 
 # Sistem gereksinimlerini kontrol et
 if [ "$(id -u)" != "0" ]; then
@@ -11,10 +11,8 @@ fi
 # Genel değişkenler
 ELASTIC_VERSION="8.x"
 CERTS_DIR="/etc/elasticsearch/certs"
-KIBANA_CERTS_DIR="/etc/kibana/certs"
-ELASTIC_PASSWORD="your_secure_password_here"  # Bu şifreyi güvenli bir şekilde belirleyin.
-KIBANA_USER="kibana_system"
-KIBANA_PASSWORD="your_kibana_system_password"
+KIBANA_PORT="5601"
+ELASTIC_PASSWORD="$1"  # Elastic kullanıcısının şifresi
 
 # Paketleri güncelle ve gerekli bağımlılıkları yükle
 echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
@@ -33,7 +31,7 @@ DEBIAN_FRONTEND=noninteractive apt install -y elasticsearch
 # Elasticsearch ayarlarını yap (SSL/TLS ile güvenli bağlantılar)
 echo "[*] Elasticsearch yapılandırılıyor..."
 mkdir -p $CERTS_DIR
-# Burada sertifikalarınızı oluşturmanız veya mevcut sertifikaları kullanmanız gerekir.
+# Sertifikalarınızı oluşturun veya mevcut sertifikaları kullanın.
 # Sertifikaları /etc/elasticsearch/certs/ dizinine yerleştirin.
 
 # SSL yapılandırması
@@ -67,15 +65,14 @@ DEBIAN_FRONTEND=noninteractive apt install -y kibana
 echo "[*] Kibana yapılandırılıyor..."
 cat <<EOL > /etc/kibana/kibana.yml
 server.host: "0.0.0.0"
-server.ssl.enabled: true
-server.ssl.certificate: "$KIBANA_CERTS_DIR/kibana.crt"
-server.ssl.key: "$KIBANA_CERTS_DIR/kibana.key"
-
 elasticsearch.hosts: ["https://localhost:9200"]
-elasticsearch.username: "$KIBANA_USER"
-elasticsearch.password: "$KIBANA_PASSWORD"
+elasticsearch.username: "elastic"
+elasticsearch.password: "$ELASTIC_PASSWORD"  # Elastic 'elastic' kullanıcısı için şifrenizi buraya girin
 elasticsearch.ssl.verificationMode: full
-elasticsearch.ssl.certificateAuthorities: ["$CERTS_DIR/elasticsearch.crt"]
+elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/http_ca.crt"]
+server.ssl.enabled: true
+server.ssl.certificate: "/etc/elasticsearch/certs/kibana.crt"
+server.ssl.key: "/etc/elasticsearch/certs/kibana.key"
 EOL
 
 # Kibana servisini başlat
@@ -100,9 +97,9 @@ output {
     hosts => ["https://localhost:9200"]
     index => "logstash-%{+YYYY.MM.dd}"
     user => "elastic"
-    password => "$ELASTIC_PASSWORD"
+    password => "$ELASTIC_PASSWORD"  # Elastic 'elastic' kullanıcısı için şifrenizi buraya girin
     ssl => true
-    cacert => "$CERTS_DIR/http_ca.crt"
+    cacert => "/etc/elasticsearch/certs/http_ca.crt"
   }
 }
 EOL
@@ -115,8 +112,11 @@ systemctl start logstash
 echo "[*] Nginx ters proxy yapılandırması yapılıyor..."
 cat <<EOL > /etc/nginx/sites-available/kibana
 server {
-    listen 80;
+    listen 443 ssl;
     server_name kibana.local;
+
+    ssl_certificate /etc/elasticsearch/certs/kibana.crt;
+    ssl_certificate_key /etc/elasticsearch/certs/kibana.key;
 
     location / {
         proxy_pass https://localhost:5601;
@@ -135,7 +135,7 @@ systemctl restart nginx
 
 # Kibana için Enrollment Token alınıyor
 echo "[*] Kibana için enrollment token alınıyor..."
-KIBANA_TOKEN=$(curl -u elastic:$ELASTIC_PASSWORD -X POST "https://localhost:9200/_security/enroll/kibana")
+KIBANA_TOKEN=$(curl -u elastic:$ELASTIC_PASSWORD -X POST "https://localhost:9200/_security/enroll/kibana" --insecure)
 
 if [ -n "$KIBANA_TOKEN" ]; then
   export KIBANA_ENROLLMENT_TOKEN="$KIBANA_TOKEN"
