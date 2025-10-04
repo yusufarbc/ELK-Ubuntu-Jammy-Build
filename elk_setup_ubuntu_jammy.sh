@@ -63,6 +63,12 @@ sudo bash -c "echo 'xpack.security.http.ssl.enabled: true' >> /etc/elasticsearch
 sudo bash -c "echo 'xpack.security.http.ssl.keystore.path: /etc/elasticsearch/certs/elastic-certificates.p12' >> /etc/elasticsearch/elasticsearch.yml"
 sudo bash -c "echo 'xpack.security.http.ssl.truststore.path: /etc/elasticsearch/certs/elastic-certificates.p12' >> /etc/elasticsearch/elasticsearch.yml"
 
+# Kibana için enrollment token alınması
+echo "[*] Kibana için enrollment token alınıyor..."
+KIBANA_TOKEN=$(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)
+
+echo "Kibana Enrollment Token: $KIBANA_TOKEN"
+
 # Kibana yapılandırması
 echo "[*] Kibana yapılandırması yapılıyor..."
 sudo bash -c "echo 'elasticsearch.username: \"elastic\"' >> /etc/kibana/kibana.yml"
@@ -70,6 +76,9 @@ sudo bash -c "echo 'elasticsearch.password: \"$ELASTIC_PASSWORD\"' >> /etc/kiban
 sudo bash -c "echo 'server.ssl.enabled: true' >> /etc/kibana/kibana.yml"
 sudo bash -c "echo 'server.ssl.certificate: /etc/elasticsearch/certs/elastic-certificates.crt' >> /etc/kibana/kibana.yml"
 sudo bash -c "echo 'server.ssl.key: /etc/elasticsearch/certs/elastic-certificates.key' >> /etc/kibana/kibana.yml"
+sudo bash -c "echo 'elasticsearch.ssl.certificateAuthorities: [\"/etc/elasticsearch/certs/http_ca.crt\"]' >> /etc/kibana/kibana.yml"
+sudo bash -c "echo 'xpack.security.enabled: true' >> /etc/kibana/kibana.yml"
+sudo bash -c "echo 'xpack.security.enrollmentToken: \"$KIBANA_TOKEN\"' >> /etc/kibana/kibana.yml"
 
 # Logstash kurulumu
 echo "[*] Logstash kuruluyor..."
@@ -109,3 +118,4 @@ sudo systemctl start kibana
 # Kurulum tamamlandı
 echo "[*] ELK Stack (Elasticsearch, Kibana, Logstash) başarıyla kuruldu."
 echo "Kibana erişimi: https://<Sunucu_IP>:5601 - Elastic kullanıcı adı: elastic, Parola: $ELASTIC_PASSWORD"
+echo "Kibana Enrollment Token: $KIBANA_TOKEN"
