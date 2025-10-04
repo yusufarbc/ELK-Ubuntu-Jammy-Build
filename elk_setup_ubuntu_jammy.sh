@@ -21,7 +21,7 @@ sudo apt-get install -y apt-transport-https gnupg2 curl wget jq unzip lsb-releas
 # Elastic GPG anahtarının eklenmesi
 echo "[*] Elastic GPG anahtarı ekleniyor..."
 curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-8.x.list
+echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/9.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-9.x.list
 
 # Paket listelerinin güncellenmesi
 echo "[*] Paket listesi tekrar güncelleniyor..."
@@ -38,7 +38,6 @@ sudo bash -c "echo 'discovery.type: single-node' >> /etc/elasticsearch/elasticse
 
 # Elasticsearch servisini başlatmak
 echo "[*] Elasticsearch servisi başlatılıyor..."
-sudo systemctl daemon-reload
 sudo systemctl enable elasticsearch
 sudo systemctl start elasticsearch
 
@@ -99,13 +98,7 @@ echo "[*] Logstash servisi başlatılıyor..."
 sudo systemctl enable logstash
 sudo systemctl start logstash
 
-# Kibana için Enrollment Token alınıyor
-echo "[*] Kibana için Enrollment Token alınıyor..."
-KIBANA_ENROLLMENT_TOKEN=$(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)
-echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
-
-# Kibana erişimi bilgileri
-echo "[*] Kibana erişimi sağlandı. Aşağıdaki bilgileri kullanarak Kibana'ya erişebilirsiniz."
-echo "Kibana erişimi: https://$(hostname -I | awk '{print $1}'):5601"
+echo "[*] ELK Stack kurulumu başarıyla tamamlandı."
+echo "Kibana erişimi: https://<Sunucu_IP>:5601"
 echo "Elastic kullanıcı adı: elastic, Parola: $ELASTIC_PASSWORD"
-echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
+echo "Kibana Enrollment Token: $(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)"
