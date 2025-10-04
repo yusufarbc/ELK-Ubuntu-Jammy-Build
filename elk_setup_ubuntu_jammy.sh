@@ -2,7 +2,8 @@
 
 # Proje için gerekli paketlerin kurulması
 echo "Gerekli bağımlılıkları kuruyor..."
-sudo apt-get update && sudo apt-get install -y \
+sudo apt-get update -y
+sudo apt-get install -y \
   apt-transport-https \
   curl \
   wget \
@@ -16,15 +17,15 @@ sudo apt-get update && sudo apt-get install -y \
 echo "Elasticsearch ve Kibana reposu ekleniyor..."
 
 # Elasticsearch GPG Anahtarını ve repo adresini ekle
-curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc
+curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc > /dev/null
 echo "deb https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
 
 # Logstash reposunu ekleme
-curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc
+curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc > /dev/null
 echo "deb https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
 
 # Paket listelerini güncelle
-sudo apt-get update
+sudo apt-get update -y
 
 # Elasticsearch, Kibana ve Logstash kurulumları
 echo "Elasticsearch, Kibana ve Logstash kurulumu başlatılıyor..."
@@ -36,6 +37,7 @@ sudo mkdir -p /etc/elasticsearch/certs
 sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/elasticsearch/certs/elasticsearch.key -out /etc/elasticsearch/certs/elasticsearch.crt -days 365 -nodes -subj "/CN=localhost"
 
 # Kibana için SSL Sertifikası oluşturulması
+sudo mkdir -p /etc/kibana/certs
 sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/kibana/certs/kibana.key -out /etc/kibana/certs/kibana.crt -days 365 -nodes -subj "/CN=localhost"
 
 # Güçlü parolaların oluşturulması
@@ -102,11 +104,35 @@ EOF
 # Elasticsearch ve Kibana servisini başlat
 echo "Servisler başlatılıyor..."
 sudo systemctl enable elasticsearch kibana logstash
-sudo systemctl start elasticsearch kibana logstash
+
+# Elasticsearch servisini başlat
+sudo systemctl start elasticsearch
+if [[ $? -ne 0 ]]; then
+  echo "Elasticsearch servisi başlatılamadı. Lütfen logları kontrol edin."
+  exit 1
+fi
+
+# Kibana servisini başlat
+sudo systemctl start kibana
+if [[ $? -ne 0 ]]; then
+  echo "Kibana servisi başlatılamadı. Lütfen logları kontrol edin."
+  exit 1
+fi
+
+# Logstash servisini başlat
+sudo systemctl start logstash
+if [[ $? -ne 0 ]]; then
+  echo "Logstash servisi başlatılamadı. Lütfen logları kontrol edin."
+  exit 1
+fi
 
 # Kibana Enrollment Token alma
 echo "Kibana Enrollment Token alınıyor..."
 ENROLLMENT_TOKEN=$(sudo /usr/share/kibana/bin/kibana-enrollment-setup -i)
+if [[ $? -ne 0 ]]; then
+  echo "Kibana Enrollment Token alınamadı. Lütfen logları kontrol edin."
+  exit 1
+fi
 
 # Kurulum ve yapılandırma bilgilerini yazdırma
 echo "Kurulum tamamlandı!"
