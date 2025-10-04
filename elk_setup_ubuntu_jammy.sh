@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Proje için gerekli paketlerin kurulması
-echo "Gerekli bağımlılıkları kuruyor..."
+# ELK Stack kurulumuna başlama
+echo "ELK Stack kurulumuna başlıyoruz..."
+
+# Gerekli bağımlılıkları kurma
+echo "Bağımlılıklar kuruluyor..."
 sudo apt-get update -y
 sudo apt-get install -y \
   apt-transport-https \
@@ -11,45 +14,18 @@ sudo apt-get install -y \
   gnupg \
   lsb-release \
   ca-certificates \
-  software-properties-common \
-  openjdk-11-jdk  # Elasticsearch ve Kibana için JDK gereklidir.
+  openjdk-11-jdk \
+  software-properties-common
 
-# Elasticsearch, Kibana ve Logstash için .deb paketlerini indirme
-echo "Elasticsearch, Kibana ve Logstash paketleri indiriliyor..."
+# Elastic'in resmi GPG anahtarını ekleyip repo adresini ekliyoruz
+echo "Elastic'in resmi repo ve GPG anahtarları ekleniyor..."
+curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc
+echo "deb https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
 
-# Elasticsearch .deb paketi indiriliyor
-wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.19.4-amd64.deb
-
-# Kibana .deb paketi indiriliyor
-wget https://artifacts.elastic.co/downloads/kibana/kibana-8.19.4-amd64.deb
-
-# Logstash .deb paketi indiriliyor
-wget https://artifacts.elastic.co/downloads/logstash/logstash-8.19.4.deb
-
-# Paketlerin kurulumu
-echo "Paketler kuruluyor..."
-sudo dpkg -i elasticsearch-8.19.4-amd64.deb
-sudo dpkg -i kibana-8.19.4-amd64.deb
-sudo dpkg -i logstash-8.19.4.deb
-
-# Gerekli dizinlerin oluşturulması
-echo "Logstash konfigürasyon dizini oluşturuluyor..."
-sudo mkdir -p /etc/logstash/conf.d
-sudo chown -R $USER:$USER /etc/logstash
-
-# Sertifikaların otomatik oluşturulması
-echo "Sertifikalar oluşturuluyor..."
-sudo mkdir -p /etc/elasticsearch/certs
-sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/elasticsearch/certs/elasticsearch.key -out /etc/elasticsearch/certs/elasticsearch.crt -days 365 -nodes -subj "/CN=localhost"
-
-# Kibana için SSL Sertifikası oluşturulması
-sudo mkdir -p /etc/kibana/certs
-sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/kibana/certs/kibana.key -out /etc/kibana/certs/kibana.crt -days 365 -nodes -subj "/CN=localhost"
-
-# Güçlü parolaların oluşturulması
-echo "Güçlü parolalar oluşturuluyor..."
-ELASTIC_PASSWORD=$(openssl rand -base64 16)
-KIBANA_PASSWORD=$(openssl rand -base64 16)
+# Paket listelerini güncelleyip Elastic paketlerini kuruyoruz
+echo "Elastic paketleri kuruluyor..."
+sudo apt-get update -y
+sudo apt-get install -y elasticsearch kibana logstash
 
 # Elasticsearch konfigürasyon dosyasını düzenle
 echo "Elasticsearch yapılandırması yapılıyor..."
@@ -65,7 +41,7 @@ xpack.security.transport.ssl.keystore.path: certs/elasticsearch.p12
 xpack.security.transport.ssl.truststore.path: certs/elasticsearch.p12
 EOF
 
-# Kibana konfigürasyonu
+# Kibana konfigürasyonu yapma
 echo "Kibana yapılandırması yapılıyor..."
 sudo tee /etc/kibana/kibana.yml > /dev/null <<EOF
 server.host: "0.0.0.0"
@@ -77,7 +53,7 @@ xpack.security.enabled: true
 xpack.encryptedSavedObjects.encryptionKey: "a_random_32_byte_string"
 EOF
 
-# Logstash için yapılandırma
+# Logstash için yapılandırma dosyasını oluşturma
 echo "Logstash yapılandırması yapılıyor..."
 sudo tee /etc/logstash/conf.d/fortigate.conf > /dev/null <<EOF
 input {
@@ -107,7 +83,21 @@ output {
 }
 EOF
 
-# Elasticsearch log dizini oluşturuluyor ve izinler ayarlanıyor
+# Sertifikaların oluşturulması
+echo "Sertifikalar oluşturuluyor..."
+sudo mkdir -p /etc/elasticsearch/certs
+sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/elasticsearch/certs/elasticsearch.key -out /etc/elasticsearch/certs/elasticsearch.crt -days 365 -nodes -subj "/CN=localhost"
+
+# Kibana için SSL Sertifikası oluşturulması
+sudo mkdir -p /etc/kibana/certs
+sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/kibana/certs/kibana.key -out /etc/kibana/certs/kibana.crt -days 365 -nodes -subj "/CN=localhost"
+
+# Güçlü parolaların oluşturulması
+echo "Güçlü parolalar oluşturuluyor..."
+ELASTIC_PASSWORD=$(openssl rand -base64 16)
+KIBANA_PASSWORD=$(openssl rand -base64 16)
+
+# Elasticsearch log dizini kontrol ediliyor
 echo "Elasticsearch log dizini kontrol ediliyor..."
 if [ ! -d "/usr/share/elasticsearch/logs" ]; then
     echo "Log dizini bulunamadı. Yeni log dizini oluşturuluyor..."
@@ -117,7 +107,7 @@ else
     echo "Log dizini mevcut."
 fi
 
-# Elasticsearch ve Kibana servislerini başlat
+# Elasticsearch ve Kibana servislerini başlatıyoruz
 echo "Servisler başlatılıyor..."
 
 # Elasticsearch servisini başlat
