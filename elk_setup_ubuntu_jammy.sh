@@ -16,7 +16,7 @@ sudo apt-get update -y
 
 # Gerekli bağımlılıkların kurulması
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
-sudo apt-get install -y apt-transport-https gnupg2 curl wget jq unzip lsb-release
+sudo apt-get install -y apt-transport-https gnupg2 curl wget jq unzip lsb-release certbot python3-certbot-nginx
 
 # Elastic GPG anahtarının eklenmesi
 echo "[*] Elastic GPG anahtarı ekleniyor..."
@@ -130,14 +130,19 @@ sudo systemctl restart nginx
 
 # Let's Encrypt ile SSL sertifikası alalım
 echo "[*] Let's Encrypt ile SSL sertifikası alınıyor..."
-sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d <Sunucu_IP> --non-interactive --agree-tos -m <email_adresiniz>
 
 # SSL ve HTTPs yapılandırmasını kontrol etme
 echo "[*] SSL sertifikası etkinleştirildi ve Nginx yeniden başlatılıyor..."
 sudo systemctl restart nginx
 
-# Kibana'ya erişim bilgileri
+# Kibana için Enrollment Token alınıyor
+echo "[*] Kibana için Enrollment Token alınıyor..."
+KIBANA_ENROLLMENT_TOKEN=$(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)
+echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
+
+# Kibana erişimi bilgileri
 echo "[*] Kibana erişimi sağlandı. Aşağıdaki bilgileri kullanarak Kibana'ya erişebilirsiniz."
 echo "Kibana erişimi: https://<Sunucu_IP>:5601"
 echo "Elastic kullanıcı adı: elastic, Parola: $ELASTIC_PASSWORD"
+echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
