@@ -30,7 +30,11 @@ fi
 # Elasticsearch servisini başlat
 systemctl daemon-reload
 systemctl enable elasticsearch
-systemctl start elasticsearch
+echo "[*] Elasticsearch başlatılıyor..."
+if ! systemctl start elasticsearch; then
+  echo "[HATA] Elasticsearch başlatılamadı. Lütfen Elasticsearch loglarını kontrol edin." >&2
+  exit 1
+fi
 
 ### 3. Elastic 'elastic' kullanıcısı için parola oluşturuluyor
 echo "[*] Elastic 'elastic' kullanıcısı için parola oluşturuluyor..."
@@ -39,15 +43,13 @@ echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
 
 ### 4. Kibana enrollment token alınıyor ve ENV değişkenine atanıyor
 echo "[*] Kibana için enrollment token alınıyor..."
-KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)"
-
-if [ -n "$KIBANA_TOKEN" ]; then
-  export KIBANA_ENROLLMENT_TOKEN="$KIBANA_TOKEN"
-  echo "[*] Kibana Enrollment Token alındı ve ENV değişkenine atandı."
-else
-  echo "[HATA] Kibana Enrollment Token alınamadı!" >&2
+if ! KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)"; then
+  echo "[HATA] Kibana Enrollment Token alınamadı! Elasticsearch'in düzgün çalıştığından emin olun." >&2
   exit 1
 fi
+
+export KIBANA_ENROLLMENT_TOKEN="$KIBANA_TOKEN"
+echo "[*] Kibana Enrollment Token alındı ve ENV değişkenine atandı."
 
 # (Not: Yukarıdaki token, Kibana'yı elle enroll etmek için kullanılacak.
 # Script, Kibana enrollment işlemini otomatik yapmamaktadır.)
