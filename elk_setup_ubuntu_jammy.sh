@@ -2,9 +2,6 @@
 set -e
 
 # Değişkenler
-ES_VERSION="9.0.0"
-KIBANA_VERSION="9.0.0"
-LOGSTASH_VERSION="9.0.0"
 STACK_VERSION="9.x"
 REPO_URL="https://artifacts.elastic.co/packages/$STACK_VERSION/apt"
 
@@ -33,11 +30,11 @@ sudo apt-get update
 
 # Elasticsearch, Kibana ve Logstash paketlerinin kurulumu
 echo "[*] Elasticsearch kuruluyor..."
-sudo apt-get install -y elasticsearch=$ES_VERSION
+sudo apt-get install -y elasticsearch
 echo "[*] Kibana kuruluyor..."
-sudo apt-get install -y kibana=$KIBANA_VERSION
+sudo apt-get install -y kibana
 echo "[*] Logstash kuruluyor..."
-sudo apt-get install -y logstash=$LOGSTASH_VERSION
+sudo apt-get install -y logstash
 
 # Elasticsearch ve Kibana servislerinin etkinleştirilmesi
 echo "[*] Elasticsearch ve Kibana servisleri etkinleştiriliyor..."
