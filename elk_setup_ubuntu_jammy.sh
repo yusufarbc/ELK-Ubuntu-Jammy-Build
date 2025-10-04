@@ -1,7 +1,10 @@
 #!/bin/bash
+# Elastic Stack Kurulum Scripti
+
+# Zorunlu değişkenler
+export DEBIAN_FRONTEND=noninteractive
 
 # Elasticsearch ve Kibana için parola üretimi
-export DEBIAN_FRONTEND=noninteractive
 export ELASTIC_PASSWORD=$(openssl rand -base64 16)
 export KIBANA_PASSWORD=$(openssl rand -base64 16)
 
@@ -14,7 +17,7 @@ sudo apt-get update -y
 
 # Gerekli bağımlılıkların kurulması
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
-sudo apt-get install -y apt-transport-https gnupg2 curl wget jq unzip lsb-release certbot python3-certbot-nginx
+sudo apt-get install -y apt-transport-https gnupg2 curl wget jq unzip lsb-release nginx
 
 # Elastic GPG anahtarının eklenmesi
 echo "[*] Elastic GPG anahtarı ekleniyor..."
@@ -29,17 +32,33 @@ sudo apt-get update -y
 echo "[*] Elasticsearch kuruluyor..."
 sudo apt-get install -y elasticsearch
 
-# Elasticsearch yapılandırma dosyasını düzenleyelim (duplicate olmadan)
-echo "[*] Elasticsearch yapılandırması yapılıyor..."
-sudo bash -c 'echo "network.host: 0.0.0.0" >> /etc/elasticsearch/elasticsearch.yml'
-sudo bash -c 'echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml'
-sudo bash -c "echo 'xpack.security.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
-sudo bash -c "echo 'xpack.security.http.ssl.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
-sudo bash -c "echo 'xpack.security.http.ssl.keystore.path: certs/http.p12' >> /etc/elasticsearch/elasticsearch.yml"
-sudo bash -c "echo 'xpack.security.transport.ssl.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
-sudo bash -c "echo 'xpack.security.transport.ssl.keystore.path: certs/transport.p12' >> /etc/elasticsearch/elasticsearch.yml"
-sudo bash -c "echo 'xpack.security.transport.ssl.truststore.path: certs/transport.p12' >> /etc/elasticsearch/elasticsearch.yml"
-sudo bash -c "echo 'cluster.initial_master_nodes: [\"ubuntu\"]' >> /etc/elasticsearch/elasticsearch.yml"
+# Elasticsearch yapılandırma dosyasını sıfırdan oluştur
+echo "[*] Elasticsearch yapılandırma dosyası sıfırdan oluşturuluyor..."
+cat <<EOF | sudo tee /etc/elasticsearch/elasticsearch.yml
+# Elasticsearch Configuration
+
+# Enable security features
+xpack.security.enabled: true
+
+# Enable encryption for HTTP client connections (Kibana, Logstash, Agents)
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.keystore.path: certs/http.p12
+
+# Enable encryption and mutual authentication between cluster nodes
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.keystore.path: certs/transport.p12
+xpack.security.transport.ssl.truststore.path: certs/transport.p12
+
+# Allow connections from any IP (adjust as per your security requirements)
+network.host: 0.0.0.0
+http.host: 0.0.0.0
+
+# Use single-node discovery (useful for development)
+discovery.type: single-node
+
+# Create a new cluster with the current node
+cluster.initial_master_nodes: ["node-1"]
+EOF
 
 # Elasticsearch servisini başlatmak
 echo "[*] Elasticsearch servisi başlatılıyor..."
@@ -50,14 +69,17 @@ sudo systemctl start elasticsearch
 echo "[*] Kibana kuruluyor..."
 sudo apt-get install -y kibana
 
-# Kibana yapılandırma dosyasını düzenleyelim (duplicate olmadan)
-echo "[*] Kibana yapılandırması yapılıyor..."
-sudo bash -c "echo 'elasticsearch.username: \"elastic\"' >> /etc/kibana/kibana.yml"
-sudo bash -c "echo 'elasticsearch.password: \"$ELASTIC_PASSWORD\"' >> /etc/kibana/kibana.yml"
-sudo bash -c "echo 'server.host: \"0.0.0.0\"' >> /etc/kibana/kibana.yml"
-sudo bash -c "echo 'server.ssl.enabled: true' >> /etc/kibana/kibana.yml"
-sudo bash -c "echo 'server.ssl.certificate: /etc/elasticsearch/certs/instance.crt' >> /etc/kibana/kibana.yml"
-sudo bash -c "echo 'server.ssl.key: /etc/elasticsearch/certs/instance.key' >> /etc/kibana/kibana.yml"
+# Kibana yapılandırma dosyasını sıfırdan oluştur
+echo "[*] Kibana yapılandırma dosyası sıfırdan oluşturuluyor..."
+cat <<EOF | sudo tee /etc/kibana/kibana.yml
+# Kibana Configuration
+server.host: "0.0.0.0"
+elasticsearch.username: "elastic"
+elasticsearch.password: "$ELASTIC_PASSWORD"
+server.ssl.enabled: true
+server.ssl.certificate: /etc/elasticsearch/certs/instance.crt
+server.ssl.key: /etc/elasticsearch/certs/instance.key
+EOF
 
 # Kibana servisini başlatmak
 echo "[*] Kibana servisi başlatılıyor..."
@@ -68,9 +90,9 @@ sudo systemctl start kibana
 echo "[*] Logstash kuruluyor..."
 sudo apt-get install -y logstash
 
-# Logstash pipeline yapılandırması
-echo "[*] Logstash pipeline yapılandırması yapılıyor..."
-cat <<'LSCONF' | sudo tee /etc/logstash/conf.d/logstash.conf
+# Logstash yapılandırma dosyasını sıfırdan oluştur
+echo "[*] Logstash yapılandırma dosyası sıfırdan oluşturuluyor..."
+cat <<EOF | sudo tee /etc/logstash/conf.d/fortigate.conf
 input {
   beats {
     port => 5044
@@ -79,10 +101,7 @@ input {
 
 filter {
   grok {
-    match => { 'message' => '%{SYSLOGTIMESTAMP} %{SYSLOGHOST} %{DATA:fortigate_message}' }
-  }
-  kv {
-    source => 'fortigate_message'
+    match => { "message" => "%{SYSLOGTIMESTAMP} %{SYSLOGHOST} %{DATA:fortigate_message}" }
   }
 }
 
@@ -96,20 +115,20 @@ output {
     cacert => "/etc/elasticsearch/certs/http_ca.crt"
   }
 }
-LSCONF
+EOF
 
 # Logstash servisini başlatmak
 echo "[*] Logstash servisi başlatılıyor..."
 sudo systemctl enable logstash
 sudo systemctl start logstash
 
-# Nginx kurulumu
+# Nginx kurulumu ve yapılandırması
 echo "[*] Nginx kuruluyor..."
 sudo apt-get install -y nginx
 
 # Nginx yapılandırması
 echo "[*] Nginx yapılandırması yapılıyor..."
-cat <<'NGINXCONF' | sudo tee /etc/nginx/sites-available/kibana
+cat <<EOF | sudo tee /etc/nginx/sites-available/kibana
 server {
     listen 80;
     server_name <Sunucu_IP>;
@@ -117,29 +136,25 @@ server {
     location / {
         proxy_pass http://localhost:5601;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
     }
 }
-NGINXCONF
+EOF
 
-# Nginx sites-available'ı sites-enabled'a bağlama
+# Nginx yapılandırmasını etkinleştir
 echo "[*] Nginx yapılandırması etkinleştiriliyor..."
 sudo ln -s /etc/nginx/sites-available/kibana /etc/nginx/sites-enabled/
-
-# Nginx yeniden başlatma
-echo "[*] Nginx servisi başlatılıyor..."
 sudo systemctl restart nginx
 
-# Kibana için Enrollment Token alınıyor
+# Kibana Enrollment Token alınıyor
 echo "[*] Kibana için Enrollment Token alınıyor..."
 KIBANA_ENROLLMENT_TOKEN=$(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)
 echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
 
-# Kibana erişimi bilgileri
-echo "[*] Kibana erişimi sağlandı. Aşağıdaki bilgileri kullanarak Kibana'ya erişebilirsiniz."
+echo "[*] ELK Stack kurulumu tamamlandı."
 echo "Kibana erişimi: https://<Sunucu_IP>:5601"
 echo "Elastic kullanıcı adı: elastic, Parola: $ELASTIC_PASSWORD"
 echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
