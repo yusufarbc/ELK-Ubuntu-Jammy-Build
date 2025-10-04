@@ -17,7 +17,7 @@ sudo apt-get update -y
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
 sudo apt-get install -y apt-transport-https ca-certificates wget curl gnupg2 unzip jq lsb-release
 
-# Elastic GPG anahtarının eklenmesi (gerekli değilse atlanabilir)
+# Elastic GPG anahtarının eklenmesi
 echo "[*] Elastic GPG anahtarı ekleniyor..."
 wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /usr/share/keyrings/elastic-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/elastic-archive-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
