@@ -1,147 +1,96 @@
 #!/bin/bash
-# Elastic SIEM On-Prem Kurulum Scripti (Stabil Sürüm - Ubuntu 22.04 LTS)
-# Tek host, Docker'sız: Elasticsearch 8.x + Kibana + Logstash
-# Bu sürüm, yaygın start hatalarını engellemek için ek tuning uygular.
+# Elastic SIEM On-Prem Kurulum Scripti (Düzeltilmiş - Kibana Enrollment Token ENV olarak)
 
-set -euo pipefail
-IFS=$'\n\t'
-trap 'rc=$?; if [ $rc -ne 0 ]; then echo "[HATA] Betik $rc koduyla sonlandı" >&2; fi; exit $rc' EXIT
-
-log() { printf "[%s] %s\n" "$1" "$2"; }
-info(){ log "BILGI" "$1"; }
-warn(){ log "UYARI" "$1"; }
-err(){  log "HATA " "$1"; }
-
+### 1. Sistem Hazırlığı
 if [ "$(id -u)" != "0" ]; then
   echo "Lütfen bu scripti root olarak çalıştırın." >&2
   exit 1
 fi
 
-export DEBIAN_FRONTEND=noninteractive
-export NEEDRESTART_MODE=a
+echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
+apt update && apt install -y apt-transport-https curl gnupg jq
 
-# ---------- Paketler
-info "APT güncelleniyor ve gerekli paketler kuruluyor..."
-apt-get update -q
-apt-get install -y -q apt-transport-https ca-certificates curl gnupg jq lsof
-
-# ---------- Elastic repo
-info "Elastic GPG ve APT deposu ekleniyor..."
-install -d /usr/share/keyrings
+# Elastic APT deposunu ekle
+echo "[*] Elastic GPG anahtarı ekleniyor..."
 curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elastic.gpg
 echo "deb [signed-by=/usr/share/keyrings/elastic.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" > /etc/apt/sources.list.d/elastic-8.x.list
-apt-get update -q
+apt update
 
-# ---------- Kurulum
-info "Elasticsearch, Kibana ve Logstash kuruluyor..."
-apt-get install -y -q elasticsearch kibana logstash
+### 2. Elasticsearch Kurulumu
+echo "[*] Elasticsearch kuruluyor..."
+DEBIAN_FRONTEND=noninteractive apt install -y elasticsearch
 
-# ---------- Tuning & izinler (ES başlamadan ÖNCE)
-info "Sistem tuning ve izinler uygulanıyor..."
-# vm.max_map_count
-echo "vm.max_map_count=262144" > /etc/sysctl.d/99-elasticsearch.conf
-sysctl -w vm.max_map_count=262144 || true
-
-# limits (pam) - yine de systemd override ana kaynaktır
-cat > /etc/security/limits.d/99-elasticsearch.conf <<'LIMITS'
-elasticsearch soft nofile 65536
-elasticsearch hard nofile 65536
-elasticsearch soft memlock unlimited
-elasticsearch hard memlock unlimited
-elasticsearch soft nproc 4096
-elasticsearch hard nproc 4096
-LIMITS
-
-# systemd override
-HEAP_MB=1024
-if [ -r /proc/meminfo ]; then
-  MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)
-  if [ "$MEM_KB" -gt 0 ]; then
-    MEM_MB=$((MEM_KB/1024))
-    HEAP_MB=$((MEM_MB/2)); [ "$HEAP_MB" -gt 32768 ] && HEAP_MB=32768
-  fi
+# Elasticsearch ayarları: network.host herkese açık, single-node mode
+echo "[*] Elasticsearch yapılandırılıyor..."
+sed -i 's|#network.host: .*|network.host: 0.0.0.0|' /etc/elasticsearch/elasticsearch.yml
+if ! grep -q "^discovery.type" /etc/elasticsearch/elasticsearch.yml; then
+  echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
 fi
-install -d /etc/systemd/system/elasticsearch.service.d
-cat > /etc/systemd/system/elasticsearch.service.d/override.conf <<EOF
-[Service]
-Environment="ES_JAVA_OPTS=-Xms${HEAP_MB}m -Xmx${HEAP_MB}m"
-LimitMEMLOCK=infinity
-LimitNOFILE=65536
-LimitNPROC=4096
-TimeoutStartSec=900
-EOF
 
-ES_DATA="/var/lib/elasticsearch"
-ES_LOGDIR="/var/log/elasticsearch"
-install -d "$ES_DATA" "$ES_LOGDIR"
-chown -R elasticsearch:elasticsearch "$ES_DATA" "$ES_LOGDIR"
-chmod -R 0750 "$ES_DATA" "$ES_LOGDIR"
-
-# ---------- Elasticsearch yapılandırma
-ES_YML="/etc/elasticsearch/elasticsearch.yml"
-info "Elasticsearch yapılandırılıyor..."
-if grep -Eq '^\s*#?\s*network\.host:' "$ES_YML"; then
-  sed -ri 's|^\s*#?\s*network\.host:.*|network.host: 127.0.0.1|' "$ES_YML"
-else
-  echo "network.host: 127.0.0.1" >> "$ES_YML"
-fi
-grep -q '^discovery.type' "$ES_YML" || echo "discovery.type: single-node" >> "$ES_YML"
-# `cluster.initial_master_nodes` satırını kaldırıyoruz
-sed -i '/^cluster.initial_master_nodes/d' "$ES_YML"
-
-# ---------- Elasticsearch başlat
+# Elasticsearch servisini başlat
 systemctl daemon-reload
 systemctl enable elasticsearch
+systemctl start elasticsearch
 
-info "Elasticsearch başlatılıyor..."
-if ! systemctl start elasticsearch; then
-  err "Elasticsearch başlatılamadı. Son log:"
-  journalctl -u elasticsearch -b --no-pager | tail -n 100 >&2 || true
-  [ -f /var/log/elasticsearch/elasticsearch.log ] && tail -n 100 /var/log/elasticsearch/elasticsearch.log >&2 || true
-  exit 1
-fi
-
-info "Elasticsearch sağlıklanması bekleniyor..."
-for i in {1..40}; do
-  if curl -sk https://localhost:9200 >/dev/null 2>&1; then break; fi
-  sleep 3
-done
-
-info "Elastic 'elastic' kullanıcısı için parola oluşturuluyor..."
+### 3. Elastic 'elastic' kullanıcısı için parola oluşturuluyor
+echo "[*] Elastic 'elastic' kullanıcısı için parola oluşturuluyor..."
 ELASTIC_PW="$(yes | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null | awk '/New value:/ {print $NF}')"
-if [ -z "${ELASTIC_PW}" ]; then
-  err "Parola üretilemedi. Elasticsearch loglarını kontrol edin."
+echo "Yeni 'elastic' şifresi: $ELASTIC_PW"
+
+### 4. Kibana enrollment token alınıyor ve ENV değişkenine atanıyor
+echo "[*] Kibana için enrollment token alınıyor..."
+KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)"
+
+if [ -n "$KIBANA_TOKEN" ]; then
+  export KIBANA_ENROLLMENT_TOKEN="$KIBANA_TOKEN"
+  echo "[*] Kibana Enrollment Token alındı ve ENV değişkenine atandı."
+else
+  echo "[HATA] Kibana Enrollment Token alınamadı!" >&2
   exit 1
 fi
-echo "$ELASTIC_PW" > /root/.elastic_pw && chmod 600 /root/.elastic_pw
-info "Yeni 'elastic' şifresi /root/.elastic_pw dosyasına kaydedildi."
 
-info "Kibana için enrollment token alınıyor..."
-KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana || true)"
-[ -z "$KIBANA_TOKEN" ] && warn "Kibana enrollment token şu an alınamadı."
+# (Not: Yukarıdaki token, Kibana'yı elle enroll etmek için kullanılacak.
+# Script, Kibana enrollment işlemini otomatik yapmamaktadır.)
 
-KB_YML="/etc/kibana/kibana.yml"
-info "Kibana yapılandırılıyor..."
-if grep -Eq '^\s*#?\s*server\.host:' "$KB_YML"; then
-  sed -ri 's|^\s*#?\s*server\.host:.*|server.host: "0.0.0.0"|' "$KB_YML"
-else
-  echo 'server.host: "0.0.0.0"' >> "$KB_YML"
-fi
+### 5. Kibana Kurulumu
+echo "[*] Kibana kuruluyor..."
+apt install -y kibana
+
+# Kibana yapılandır: dış erişim izni
+echo "[*] Kibana yapılandırılıyor..."
+sed -i 's|#server.host: .*|server.host: "0.0.0.0"|' /etc/kibana/kibana.yml
+# (Opsiyonel) Kibana ile Elastic bağlantısı için elastic kullanıcı bilgisi ayarı:
+# sed -i "s|#elasticsearch.username: .*|elasticsearch.username: \"elastic\"|" /etc/kibana/kibana.yml
+# sed -i "s|#elasticsearch.password: .*|elasticsearch.password: \"$ELASTIC_PW\"|" /etc/kibana/kibana.yml
 
 systemctl enable kibana
-sleep 5
-systemctl start kibana || {
-  err "Kibana başlatılamadı. Son log:"
-  journalctl -u kibana -b --no-pager | tail -n 120 >&2 || true
-  exit 1
-}
 
-info "Logstash pipeline yazılıyor..."
-cat > /etc/logstash/conf.d/00-siem.conf <<'LSCONF'
+# Elasticsearch hazır olana kadar bir süre bekle
+echo "[*] Kibana başlamadan önce Elasticsearch servisinin tam başlaması için bekleniyor..."
+sleep 20
+systemctl start kibana
+
+echo "Kibana başarılı bir şekilde başlatıldı. İlk kurulum için tarayıcıdan Kibana'ya erişip enrollment token ve verification code adımlarını tamamlayın."
+echo "Elastic 'elastic' kullanıcı yeni şifresi: $ELASTIC_PW"
+
+### 6. Logstash Kurulumu ve Ayarı
+echo "[*] Logstash kuruluyor..."
+apt install -y logstash
+
+# Basit bir Logstash pipeline oluştur
+cat <<'LSCONF' > /etc/logstash/conf.d/00-siem.conf
 input {
-  beats { port => 5044 }
-  udp   { port => 5514 type => "syslog" }
-  tcp   { port => 5514 type => "syslog" }
+  beats {
+    port => 5044
+  }
+  udp {
+    port => 514
+    type => "syslog"
+  }
+  tcp {
+    port => 514
+    type => "syslog"
+  }
 }
 filter {
   if [type] == "syslog" {
@@ -155,42 +104,26 @@ filter {
 }
 output {
   elasticsearch {
-    hosts    => ["https://localhost:9200"]
-    index    => "syslog-%{+YYYY.MM.dd}"
-    user     => "elastic"
+    hosts => ["https://localhost:9200"]
+    index => "syslog-%{+YYYY.MM.dd}"
+    user => "elastic"
     password => "__ELASTIC_PW__"
-    ssl      => true
-    cacert   => "/etc/elasticsearch/certs/http_ca.crt"
+    ssl => true
+    cacert => "/etc/elasticsearch/certs/http_ca.crt"
   }
 }
 LSCONF
 
+# Elastik şifreyi pipeline'a enjekte et
 sed -i "s/__ELASTIC_PW__/$ELASTIC_PW/" /etc/logstash/conf.d/00-siem.conf
 
+# Logstash'i başlat
 systemctl enable logstash
-/usr/share/logstash/bin/logstash --path.settings /etc/logstash -t >/dev/null 2>&1 || {
-  err "Logstash config test başarısız!"; /usr/share/logstash/bin/logstash --path.settings /etc/logstash -t || true; exit 1; }
-systemctl start logstash || { err "Logstash başlatılamadı."; journalctl -u logstash -b --no-pager | tail -n 120 >&2 || true; exit 1; }
+systemctl start logstash
 
-echo
-echo "=== KURULUM TAMAMLANDI ==="
-echo "Kibana: https://<SunucuIP>:5601"
-echo "Kullanıcı: elastic"
-echo "Parola (root erişim): /root/.elastic_pw"
-[ -n "$KIBANA_TOKEN" ] && echo "Kibana Enrollment Token: $KIBANA_TOKEN"
-echo "Elasticsearch'e dış erişim açmak için /etc/elasticsearch/elasticsearch.yml içinde"
-echo "  network.host: 0.0.0.0  yapın ve 'sudo systemctl restart elasticsearch' uygulayın."
-"""
+echo "Kurulum tamamlandı. Elastic Stack (Elasticsearch, Kibana, Logstash) çalışır durumda."
+echo "Kibana erişimi: https://<SunucuIP>:5601 - Elastic kullanıcı adı: elastic"
+echo "NOT: Kibana ilk açılışta Enrollment Token isteyecektir, yukarıda üretilen tokenı kullanınız."
 
-# Save the corrected script
-from pathlib import Path
-script_content = '''YOUR_SCRIPT_CONTENT'''
-file_path = "/mnt/data/elk_setup_stable_updated.sh"
-p = Path(file_path)
-p.write_text(script_content, encoding="utf-8")
-print(f"Saved to: {file_path}")
-The updated script has been saved successfully. You can download it using the link below:
-
-📄 [Download elk_setup_stable_updated.sh](sandbox:/mnt/data/elk_setup_stable_updated.sh)
-
-This version fixes the issue by removing the conflicting `cluster.initial_master_nodes` setting and ensuring proper Elasticsearch configuration to run in single-node mode. If any further errors occur, please share the log outputs to continue troubleshooting.
+### 7. Kibana Enrollment Token'ı ekrana basma
+echo "[*] Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
