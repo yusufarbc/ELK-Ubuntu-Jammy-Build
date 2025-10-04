@@ -38,9 +38,8 @@ cd ELK-Ubuntu-Jammy-Build
 
 - **Environment değişkeni ile (önerilir):**
 ```bash
-export ELASTIC_PASSWORD='SOME_STRONG_PW'
 chmod +x elk_setup_ubuntu_jammy.sh
-sudo ELASTIC_PASSWORD="$ELASTIC_PASSWORD" bash elk_setup_ubuntu_jammy.sh --non-interactive
+sudo bash elk_setup_ubuntu_jammy.sh --non-interactive
 ```
 
 - **Veya doğrudan arg ile (komut satırında görünür):**

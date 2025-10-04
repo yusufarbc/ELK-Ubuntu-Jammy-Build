@@ -17,20 +17,17 @@ sudo apt-get update -y
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
 sudo apt-get install -y apt-transport-https ca-certificates wget curl gnupg2 unzip jq lsb-release nginx
 
-# Elastic GPG anahtarının eklenmesi
+# Elastic GPG anahtarının eklenmesi (Düzgün bir şekilde)
 echo "[*] Elastic GPG anahtarı ekleniyor..."
 wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /usr/share/keyrings/elastic-archive-keyring.gpg
 
 # Elastic paket deposunun eklenmesi
 echo "deb [signed-by=/usr/share/keyrings/elastic-archive-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-8.x.list
 
-# Elasticsearch ve Kibana'nın kurulması
-echo "[*] Elasticsearch kuruluyor..."
+# Paket listelerini tekrar güncelleyerek Elasticsearch ve Kibana'yı kuruyoruz
+echo "[*] Elasticsearch ve Kibana kuruluyor..."
 sudo apt-get update -y
-sudo apt-get install -y elasticsearch
-
-echo "[*] Kibana kuruluyor..."
-sudo apt-get install -y kibana
+sudo apt-get install -y elasticsearch kibana
 
 # Elasticsearch ve Kibana servislerinin etkinleştirilmesi
 echo "[*] Elasticsearch ve Kibana servisleri etkinleştiriliyor..."
