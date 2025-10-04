@@ -12,9 +12,30 @@ sudo apt-get install -y \
   lsb-release \
   ca-certificates \
   software-properties-common \
-  elasticsearch \
-  kibana \
-  logstash
+  openjdk-11-jdk  # Elasticsearch ve Kibana için JDK gereklidir.
+
+# Elasticsearch, Kibana ve Logstash için .deb paketlerini indirme
+echo "Elasticsearch, Kibana ve Logstash paketleri indiriliyor..."
+
+# Elasticsearch .deb paketi indiriliyor
+wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.19.4-amd64.deb
+
+# Kibana .deb paketi indiriliyor
+wget https://artifacts.elastic.co/downloads/kibana/kibana-8.19.4-amd64.deb
+
+# Logstash .deb paketi indiriliyor
+wget https://artifacts.elastic.co/downloads/logstash/logstash-8.19.4.deb
+
+# Paketlerin kurulumu
+echo "Paketler kuruluyor..."
+sudo dpkg -i elasticsearch-8.19.4-amd64.deb
+sudo dpkg -i kibana-8.19.4-amd64.deb
+sudo dpkg -i logstash-8.19.4.deb
+
+# Gerekli dizinlerin oluşturulması
+echo "Logstash konfigürasyon dizini oluşturuluyor..."
+sudo mkdir -p /etc/logstash/conf.d
+sudo chown -R $USER:$USER /etc/logstash
 
 # Sertifikaların otomatik oluşturulması
 echo "Sertifikalar oluşturuluyor..."
