@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ELK Stack kurulumuna başlama
+# ELK Stack kurulumuna başlıyoruz
 echo "ELK Stack kurulumuna başlıyoruz..."
 
 # Gerekli bağımlılıkları kurma
@@ -97,15 +97,19 @@ echo "Güçlü parolalar oluşturuluyor..."
 ELASTIC_PASSWORD=$(openssl rand -base64 16)
 KIBANA_PASSWORD=$(openssl rand -base64 16)
 
-# Elasticsearch log dizini kontrol ediliyor
-echo "Elasticsearch log dizini kontrol ediliyor..."
-if [ ! -d "/usr/share/elasticsearch/logs" ]; then
-    echo "Log dizini bulunamadı. Yeni log dizini oluşturuluyor..."
-    sudo mkdir -p /usr/share/elasticsearch/logs
-    sudo chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/logs
-else
-    echo "Log dizini mevcut."
-fi
+# Elasticsearch veri dizini ve log dizini için gerekli izinlerin verilmesi
+echo "Elasticsearch veri dizini ve log dizini izinleri kontrol ediliyor..."
+
+# Elasticsearch veri dizini ve log dizini kontrolü
+for dir in "/usr/share/elasticsearch/data" "/usr/share/elasticsearch/logs"; do
+    if [ ! -d "$dir" ]; then
+        echo "Dizin bulunamadı: $dir. Yeni dizin oluşturuluyor..."
+        sudo mkdir -p $dir
+    fi
+    echo "İzinler ayarlanıyor: $dir"
+    sudo chown -R elasticsearch:elasticsearch $dir
+    sudo chmod -R 755 $dir
+done
 
 # Elasticsearch ve Kibana servislerini başlatıyoruz
 echo "Servisler başlatılıyor..."
