@@ -2,8 +2,8 @@
 
 # Zorunlu değişkenler
 export DEBIAN_FRONTEND=noninteractive
-export ELASTIC_PASSWORD=$(openssl rand -base64 16)  # Elasticsearch için güçlü parola üretimi
-export KIBANA_PASSWORD=$(openssl rand -base64 16)  # Kibana için güçlü parola üretimi
+export ELASTIC_PASSWORD=$(openssl rand -base64 16)
+export KIBANA_PASSWORD=$(openssl rand -base64 16)
 
 # Elasticsearch ve Kibana için parola üretimi
 echo "Elastic kullanıcı parolası: $ELASTIC_PASSWORD"
@@ -15,12 +15,14 @@ sudo apt-get update -y
 
 # Gerekli bağımlılıkların kurulması
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
-sudo apt-get install -y apt-transport-https ca-certificates wget curl gnupg2 unzip jq lsb-release
+sudo apt-get install -y apt-transport-https ca-certificates wget curl gnupg2 unzip jq lsb-release nginx
 
 # Elastic GPG anahtarının eklenmesi
 echo "[*] Elastic GPG anahtarı ekleniyor..."
 wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /usr/share/keyrings/elastic-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/elastic-archive-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
+
+# Elastic paket deposunun eklenmesi
+echo "deb [signed-by=/usr/share/keyrings/elastic-archive-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-8.x.list
 
 # Elasticsearch ve Kibana'nın kurulması
 echo "[*] Elasticsearch kuruluyor..."
@@ -53,7 +55,7 @@ curl -X POST "https://localhost:9200/_security/user/kibana_system" -H "Content-T
   \"roles\" : [\"kibana_system\"]
 }"
 
-# Elasticsearch ve Kibana için SSL yapılandırması
+# Elasticsearch ve Kibana için SSL/TLS yapılandırması
 echo "[*] Elasticsearch ve Kibana için SSL/TLS yapılandırması yapılıyor..."
 sudo bash -c "echo 'xpack.security.transport.ssl.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
 sudo bash -c "echo 'xpack.security.http.ssl.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
