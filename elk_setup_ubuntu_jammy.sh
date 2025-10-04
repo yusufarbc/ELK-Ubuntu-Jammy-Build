@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Üretim ortamı için Elastic Stack (Elasticsearch, Kibana, Logstash) Kurulum Scripti - Ubuntu 22.04 LTS
+# Elastic Stack (Elasticsearch, Kibana, Logstash) Üretim Ortamı Kurulum Scripti
 
 # 1. Sistem Hazırlığı
 if [ "$(id -u)" != "0" ]; then
@@ -8,7 +8,7 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# Sistem güncellemeleri ve bağımlılıklar
+# Paketlerin güncellenmesi ve gerekli bağımlılıkların kurulması
 echo "[*] APT güncelleniyor ve gerekli paketler kuruluyor..."
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y apt-transport-https curl gnupg2 lsb-release openjdk-17-jre-headless nginx jq unzip
@@ -56,8 +56,11 @@ sudo apt install -y kibana
 echo "[*] Kibana yapılandırılıyor..."
 sudo sed -i 's|#server.host:.*|server.host: "0.0.0.0"|' /etc/kibana/kibana.yml
 sudo sed -i 's|#elasticsearch.hosts:.*|elasticsearch.hosts: ["https://localhost:9200"]|' /etc/kibana/kibana.yml
-sudo sed -i "s|#elasticsearch.username:.*|elasticsearch.username: \"elastic\"|" /etc/kibana/kibana.yml
-sudo sed -i "s|#elasticsearch.password:.*|elasticsearch.password: \"${ELASTIC_PASSWORD}\"|" /etc/kibana/kibana.yml
+
+# Kibana için uygun service account ve güvenli bağlantı ayarları
+echo "[*] Kibana için service account yapılandırması yapılıyor..."
+sudo sed -i "s|#elasticsearch.username:.*|elasticsearch.username: \"kibana_system\"|" /etc/kibana/kibana.yml
+sudo sed -i "s|#elasticsearch.password:.*|elasticsearch.password: \"${KIBANA_PASSWORD}\"|" /etc/kibana/kibana.yml
 
 # Kibana için TLS/SSL yapılandırması
 echo "[*] Kibana için TLS/SSL yapılandırması yapılıyor..."
@@ -98,8 +101,8 @@ output {
   elasticsearch {
     hosts => ["https://localhost:9200"]
     index => "logstash-%{+YYYY.MM.dd}"
-    user => "elastic"
-    password => "${ELASTIC_PASSWORD}"
+    user => "kibana_system"
+    password => "${KIBANA_PASSWORD}"
     ssl => true
     cacert => "/etc/elasticsearch/certs/http_ca.crt"
   }
@@ -114,7 +117,7 @@ echo "[*] Nginx ters proxy yapılandırması yapılıyor..."
 echo "
 server {
     listen 80;
-    server_name kibana.local;
+    server_name <Sunucu_IP>;
 
     location / {
         proxy_pass http://localhost:5601;
@@ -131,5 +134,5 @@ sudo systemctl restart nginx.service
 
 # 8. Sonlandırma ve Erişim Bilgileri
 echo "[*] Kurulum tamamlandı. Elastic Stack (Elasticsearch, Kibana, Logstash) başarıyla kuruldu."
-echo "Kibana erişimi: https://kibana.local:5601 - Elastic kullanıcı adı: elastic"
+echo "Kibana erişimi: https://<Sunucu_IP>:5601 - Elastic kullanıcı adı: kibana_system"
 echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
