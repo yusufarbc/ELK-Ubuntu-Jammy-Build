@@ -11,25 +11,10 @@ sudo apt-get install -y \
   gnupg \
   lsb-release \
   ca-certificates \
-  software-properties-common
-
-# Elasticsearch ve Kibana reposunu ekleme
-echo "Elasticsearch ve Kibana reposu ekleniyor..."
-
-# Elasticsearch GPG Anahtarını ve repo adresini ekle
-curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc > /dev/null
-echo "deb https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
-
-# Logstash reposunu ekleme
-curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo tee /etc/apt/trusted.gpg.d/elasticsearch.asc > /dev/null
-echo "deb https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-8.x.list
-
-# Paket listelerini güncelle
-sudo apt-get update -y
-
-# Elasticsearch, Kibana ve Logstash kurulumları
-echo "Elasticsearch, Kibana ve Logstash kurulumu başlatılıyor..."
-sudo apt-get install -y elasticsearch kibana logstash
+  software-properties-common \
+  elasticsearch \
+  kibana \
+  logstash
 
 # Sertifikaların otomatik oluşturulması
 echo "Sertifikalar oluşturuluyor..."
@@ -101,11 +86,22 @@ output {
 }
 EOF
 
-# Elasticsearch ve Kibana servisini başlat
+# Elasticsearch log dizini oluşturuluyor ve izinler ayarlanıyor
+echo "Elasticsearch log dizini kontrol ediliyor..."
+if [ ! -d "/usr/share/elasticsearch/logs" ]; then
+    echo "Log dizini bulunamadı. Yeni log dizini oluşturuluyor..."
+    sudo mkdir -p /usr/share/elasticsearch/logs
+    sudo chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/logs
+else
+    echo "Log dizini mevcut."
+fi
+
+# Elasticsearch ve Kibana servislerini başlat
 echo "Servisler başlatılıyor..."
-sudo systemctl enable elasticsearch kibana logstash
 
 # Elasticsearch servisini başlat
+sudo systemctl daemon-reload
+sudo systemctl enable elasticsearch
 sudo systemctl start elasticsearch
 if [[ $? -ne 0 ]]; then
   echo "Elasticsearch servisi başlatılamadı. Lütfen logları kontrol edin."
@@ -113,6 +109,7 @@ if [[ $? -ne 0 ]]; then
 fi
 
 # Kibana servisini başlat
+sudo systemctl enable kibana
 sudo systemctl start kibana
 if [[ $? -ne 0 ]]; then
   echo "Kibana servisi başlatılamadı. Lütfen logları kontrol edin."
@@ -120,6 +117,7 @@ if [[ $? -ne 0 ]]; then
 fi
 
 # Logstash servisini başlat
+sudo systemctl enable logstash
 sudo systemctl start logstash
 if [[ $? -ne 0 ]]; then
   echo "Logstash servisi başlatılamadı. Lütfen logları kontrol edin."
