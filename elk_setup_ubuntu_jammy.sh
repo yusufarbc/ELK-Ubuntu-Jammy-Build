@@ -28,10 +28,16 @@ wget https://artifacts.elastic.co/downloads/kibana/kibana-8.19.4-amd64.deb -O /t
 sudo dpkg -i /tmp/elasticsearch.deb
 sudo dpkg -i /tmp/kibana.deb
 
+# Logstash kurulumu
+echo "[*] Logstash kuruluyor..."
+wget https://artifacts.elastic.co/downloads/logstash/logstash-8.19.4-amd64.deb -O /tmp/logstash.deb
+sudo dpkg -i /tmp/logstash.deb
+
 # Elasticsearch ve Kibana servislerinin etkinleştirilmesi
 echo "[*] Elasticsearch ve Kibana servisleri etkinleştiriliyor..."
 sudo systemctl enable elasticsearch.service
 sudo systemctl enable kibana.service
+sudo systemctl enable logstash.service
 
 # Elasticsearch için TLS/SSL sertifikası oluşturulması
 echo "[*] Elasticsearch için TLS/SSL sertifikası oluşturuluyor..."
@@ -71,30 +77,41 @@ echo "[*] Kibana için Enrollment Token alınıyor..."
 KIBANA_TOKEN=$(curl -X POST "https://localhost:9200/_security/enroll/kibana" -u elastic:$ELASTIC_PASSWORD -k)
 echo "Kibana Enrollment Token: $KIBANA_TOKEN"
 
-# Logstash kurulumu
-echo "[*] Logstash kuruluyor..."
-sudo apt-get install -y logstash
-
-# Logstash pipeline yapılandırması
+# Logstash pipeline yapılandırması (Syslog ve FortiGate Logları)
 echo "[*] Logstash pipeline yapılandırması yapılıyor..."
+
+# Logstash pipeline'ın temel yapılandırması (Syslog input, Elasticsearch output)
 echo "
 input {
-  beats {
-    port => 5044
+  udp {
+    port => 514
+    type => syslog
+    codec => json
+  }
+}
+
+filter {
+  # FortiGate loglarının örnek formatı: özelleştirilmiş Grok deseni ile işlenebilir.
+  grok {
+    match => { 'message' => '%{SYSLOGTIMESTAMP} %{SYSLOGHOST} %{DATA:fortigate_message}' }
+  }
+  # FortiGate logları üzerinde ilginç alanlar, IP, port vb. çıkarılabilir.
+  kv {
+    source => \"fortigate_message\"
   }
 }
 
 output {
   elasticsearch {
     hosts => [\"https://localhost:9200\"]
-    index => \"logstash-%{+YYYY.MM.dd}\"
+    index => \"fortigate-logs-%{+YYYY.MM.dd}\"
     user => \"kibana_system\"
     password => \"$KIBANA_PASSWORD\"
     ssl => true
     cacert => \"/etc/elasticsearch/certs/http_ca.crt\"
   }
 }
-" | sudo tee /etc/logstash/conf.d/logstash.conf
+" | sudo tee /etc/logstash/conf.d/fortigate-log-pipeline.conf
 
 # Nginx ters proxy yapılandırması yapılıyor
 echo "[*] Nginx ters proxy yapılandırması yapılıyor..."
