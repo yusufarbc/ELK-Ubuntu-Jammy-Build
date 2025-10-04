@@ -15,29 +15,23 @@ sudo apt-get update -y
 
 # Gerekli bağımlılıkların kurulması
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
-sudo apt-get install -y apt-transport-https ca-certificates wget curl gnupg2 unzip jq lsb-release
+sudo apt-get install -y apt-transport-https wget curl unzip jq lsb-release gnupg2
 
-# Elasticsearch ve Kibana'nin manuel kurulumu (Elastic'in resmi .deb paketleri kullanılacak)
+# Elasticsearch ve Kibana'nın kurulması (GPG Anahtarı Kullanılmadan)
 echo "[*] Elasticsearch kuruluyor..."
-
-# Elasticsearch ve Kibana .deb paketlerini indirme
 wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.19.4-amd64.deb -O /tmp/elasticsearch.deb
-wget https://artifacts.elastic.co/downloads/kibana/kibana-8.19.4-amd64.deb -O /tmp/kibana.deb
-
-# Elasticsearch ve Kibana paketlerini kurma
 sudo dpkg -i /tmp/elasticsearch.deb
-sudo dpkg -i /tmp/kibana.deb
+sudo apt-get install -f -y
 
-# Logstash kurulumu
-echo "[*] Logstash kuruluyor..."
-wget https://artifacts.elastic.co/downloads/logstash/logstash-8.19.4-amd64.deb -O /tmp/logstash.deb
-sudo dpkg -i /tmp/logstash.deb
+echo "[*] Kibana kuruluyor..."
+wget https://artifacts.elastic.co/downloads/kibana/kibana-8.19.4-amd64.deb -O /tmp/kibana.deb
+sudo dpkg -i /tmp/kibana.deb
+sudo apt-get install -f -y
 
 # Elasticsearch ve Kibana servislerinin etkinleştirilmesi
 echo "[*] Elasticsearch ve Kibana servisleri etkinleştiriliyor..."
 sudo systemctl enable elasticsearch.service
 sudo systemctl enable kibana.service
-sudo systemctl enable logstash.service
 
 # Elasticsearch için TLS/SSL sertifikası oluşturulması
 echo "[*] Elasticsearch için TLS/SSL sertifikası oluşturuluyor..."
@@ -66,54 +60,45 @@ sudo bash -c "echo 'xpack.security.http.ssl.truststore.path: /etc/elasticsearch/
 
 # Kibana yapılandırması
 echo "[*] Kibana yapılandırması yapılıyor..."
-sudo bash -c "echo 'elasticsearch.username: \"elastic\"' >> /etc/kibana/kibana.yml"
-sudo bash -c "echo 'elasticsearch.password: \"$ELASTIC_PASSWORD\"' >> /etc/kibana/kibana.yml"
+sudo bash -c "echo 'elasticsearch.username: \"kibana_system\"' >> /etc/kibana/kibana.yml"
+sudo bash -c "echo 'elasticsearch.password: \"$KIBANA_PASSWORD\"' >> /etc/kibana/kibana.yml"
 sudo bash -c "echo 'server.ssl.enabled: true' >> /etc/kibana/kibana.yml"
 sudo bash -c "echo 'server.ssl.certificate: /etc/elasticsearch/certs/elastic-certificates.crt' >> /etc/kibana/kibana.yml"
 sudo bash -c "echo 'server.ssl.key: /etc/elasticsearch/certs/elastic-certificates.key' >> /etc/kibana/kibana.yml"
 
 # Kibana Enrollment Token alınması
 echo "[*] Kibana için Enrollment Token alınıyor..."
-KIBANA_TOKEN=$(curl -X POST "https://localhost:9200/_security/enroll/kibana" -u elastic:$ELASTIC_PASSWORD -k)
+KIBANA_TOKEN=$(curl -X POST "https://localhost:9200/_security/enroll/kibana" -u kibana_system:$KIBANA_PASSWORD -k)
 echo "Kibana Enrollment Token: $KIBANA_TOKEN"
 
-# Logstash pipeline yapılandırması (Syslog ve FortiGate Logları)
-echo "[*] Logstash pipeline yapılandırması yapılıyor..."
+# Logstash kurulumu
+echo "[*] Logstash kuruluyor..."
+wget https://artifacts.elastic.co/downloads/logstash/logstash-8.19.4-amd64.deb -O /tmp/logstash.deb
+sudo dpkg -i /tmp/logstash.deb
+sudo apt-get install -f -y
 
-# Logstash pipeline'ın temel yapılandırması (Syslog input, Elasticsearch output)
+# Logstash pipeline yapılandırması
+echo "[*] Logstash pipeline yapılandırması yapılıyor..."
 echo "
 input {
-  udp {
-    port => 514
-    type => syslog
-    codec => json
-  }
-}
-
-filter {
-  # FortiGate loglarının örnek formatı: özelleştirilmiş Grok deseni ile işlenebilir.
-  grok {
-    match => { 'message' => '%{SYSLOGTIMESTAMP} %{SYSLOGHOST} %{DATA:fortigate_message}' }
-  }
-  # FortiGate logları üzerinde ilginç alanlar, IP, port vb. çıkarılabilir.
-  kv {
-    source => \"fortigate_message\"
+  beats {
+    port => 5044
   }
 }
 
 output {
   elasticsearch {
     hosts => [\"https://localhost:9200\"]
-    index => \"fortigate-logs-%{+YYYY.MM.dd}\"
+    index => \"logstash-%{+YYYY.MM.dd}\"
     user => \"kibana_system\"
     password => \"$KIBANA_PASSWORD\"
     ssl => true
     cacert => \"/etc/elasticsearch/certs/http_ca.crt\"
   }
 }
-" | sudo tee /etc/logstash/conf.d/fortigate-log-pipeline.conf
+" | sudo tee /etc/logstash/conf.d/logstash.conf
 
-# Nginx ters proxy yapılandırması yapılıyor
+# Nginx ters proxy yapılandırması yapılıyor...
 echo "[*] Nginx ters proxy yapılandırması yapılıyor..."
 echo "
 server {
