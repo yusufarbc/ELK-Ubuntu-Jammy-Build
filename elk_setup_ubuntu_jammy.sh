@@ -35,6 +35,13 @@ sudo apt-get install -y elasticsearch
 echo "[*] Elasticsearch yapılandırması yapılıyor..."
 sudo bash -c "echo 'network.host: 0.0.0.0' >> /etc/elasticsearch/elasticsearch.yml"
 sudo bash -c "echo 'discovery.type: single-node' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'xpack.security.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'xpack.security.transport.ssl.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'xpack.security.http.ssl.enabled: true' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'xpack.security.http.ssl.keystore.path: certs/http.p12' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'xpack.security.transport.ssl.keystore.path: certs/transport.p12' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'xpack.security.transport.ssl.truststore.path: certs/transport.p12' >> /etc/elasticsearch/elasticsearch.yml"
+sudo bash -c "echo 'http.host: 0.0.0.0' >> /etc/elasticsearch/elasticsearch.yml"
 
 # Elasticsearch servisini başlatmak
 echo "[*] Elasticsearch servisi başlatılıyor..."
@@ -98,7 +105,43 @@ echo "[*] Logstash servisi başlatılıyor..."
 sudo systemctl enable logstash
 sudo systemctl start logstash
 
-echo "[*] ELK Stack kurulumu başarıyla tamamlandı."
+# Nginx kurulumu
+echo "[*] Nginx kuruluyor..."
+sudo apt-get install -y nginx
+
+# Nginx yapılandırması
+echo "[*] Nginx yapılandırması yapılıyor..."
+echo "
+server {
+    listen 80;
+    server_name <Sunucu_IP>;
+
+    location / {
+        proxy_pass http://localhost:5601;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+" | sudo tee /etc/nginx/sites-available/kibana
+
+# Nginx sites-available'ı sites-enabled'a bağlama
+echo "[*] Nginx yapılandırması etkinleştiriliyor..."
+sudo ln -s /etc/nginx/sites-available/kibana /etc/nginx/sites-enabled/
+
+# Nginx yeniden başlatma
+echo "[*] Nginx servisi başlatılıyor..."
+sudo systemctl restart nginx
+
+# Kibana için Enrollment Token alınıyor
+echo "[*] Kibana için Enrollment Token alınıyor..."
+KIBANA_ENROLLMENT_TOKEN=$(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)
+echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
+
+# Kibana erişimi bilgileri
+echo "[*] Kibana erişimi sağlandı. Aşağıdaki bilgileri kullanarak Kibana'ya erişebilirsiniz."
 echo "Kibana erişimi: https://<Sunucu_IP>:5601"
 echo "Elastic kullanıcı adı: elastic, Parola: $ELASTIC_PASSWORD"
-echo "Kibana Enrollment Token: $(sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana)"
+echo "Kibana Enrollment Token: $KIBANA_ENROLLMENT_TOKEN"
