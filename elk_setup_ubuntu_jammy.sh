@@ -17,13 +17,16 @@ sudo apt-get update -y
 echo "[*] Gerekli bağımlılıklar kuruluyor..."
 sudo apt-get install -y apt-transport-https ca-certificates wget curl gnupg2 unzip jq lsb-release
 
-# Elasticsearch ve Kibana'nın kurulması
+# Elasticsearch ve Kibana'nin manuel kurulumu (Elastic'in resmi .deb paketleri kullanılacak)
 echo "[*] Elasticsearch kuruluyor..."
-sudo apt-get update -y
-sudo apt-get install -y elasticsearch
 
-echo "[*] Kibana kuruluyor..."
-sudo apt-get install -y kibana
+# Elasticsearch ve Kibana .deb paketlerini indirme
+wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.19.4-amd64.deb -O /tmp/elasticsearch.deb
+wget https://artifacts.elastic.co/downloads/kibana/kibana-8.19.4-amd64.deb -O /tmp/kibana.deb
+
+# Elasticsearch ve Kibana paketlerini kurma
+sudo dpkg -i /tmp/elasticsearch.deb
+sudo dpkg -i /tmp/kibana.deb
 
 # Elasticsearch ve Kibana servislerinin etkinleştirilmesi
 echo "[*] Elasticsearch ve Kibana servisleri etkinleştiriliyor..."
