@@ -28,24 +28,18 @@ Agentless (WEF/WEC + Winlogbeat, rsyslog vb.) yaklaşımla, tek host üzerinde h
 
 ## Hızlı Kurulum
 
-### 1) Depoyu klonlayın
+### Depoyu klonlayın
 ```bash
 git clone https://github.com/yusufarbc/ELK-Ubuntu-Jammy-Build.git
 cd ELK-Ubuntu-Jammy-Build
 ```
 
-### 2) Kurulum seçenekleri (önerilen: environment secret)
+### Scripti Çalıştırın
 
 - **Environment değişkeni ile (önerilir):**
 ```bash
 chmod +x elk_setup_ubuntu_jammy.sh
 sudo bash elk_setup_ubuntu_jammy.sh --non-interactive
-```
-
-- **Veya doğrudan arg ile (komut satırında görünür):**
-```bash
-chmod +x elk_setup_ubuntu_jammy.sh
-sudo bash elk_setup_ubuntu_jammy.sh --non-interactive --password 'SOME_STRONG_PW'
 ```
 
 💡 **Not:** `--dry-run` ile önce neler yapılacağını görebilirsiniz.
