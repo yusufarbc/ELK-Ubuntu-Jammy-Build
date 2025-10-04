@@ -2,8 +2,8 @@
 
 # Zorunlu değişkenler
 export DEBIAN_FRONTEND=noninteractive
-export ELASTIC_PASSWORD=$(openssl rand -base64 16)
-export KIBANA_PASSWORD=$(openssl rand -base64 16)
+export ELASTIC_PASSWORD=$(openssl rand -base64 16)  # Elasticsearch için güçlü parola üretimi
+export KIBANA_PASSWORD=$(openssl rand -base64 16)  # Kibana için güçlü parola üretimi
 
 # Elasticsearch ve Kibana için parola üretimi
 echo "Elastic kullanıcı parolası: $ELASTIC_PASSWORD"
