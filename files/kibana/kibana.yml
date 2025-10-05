@@ -1,13 +1,9 @@
 # =============================================================================
-# Kibana temel ayarları (dışa açık)
+# Kibana - dışa açık (UI), ES'e TLS CA ile bağlanır
 # =============================================================================
-
-# Tüm arayüzlerde dinle (dış erişim için)
 server.host: "0.0.0.0"
-
-# Elasticsearch'e güvenli bağlantı (ES sadece localhost'ta TLS’li)
 elasticsearch.hosts: ["https://localhost:9200"]
 elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/ca.crt"]
 
-# Enrollment akışını kullanacağımız için burada kullanıcı/parola tutmuyoruz.
-# İlk açılışta "Enrollment Token" sorulduğunda betiğin ürettiği token girilir.
+# Not: İlk açılışta UI enrollment token isteyecek. Token'ı
+# betik sonunda ekranda göreceksiniz.
