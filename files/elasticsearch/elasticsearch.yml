@@ -1,16 +1,26 @@
-# Minimal, tekil ve güvenli Elasticsearch yapılandırması
+# --- Elasticsearch minimal, tek düğüm, TLS etkin ---
 
-# Veri ve log yolları (systemd drop-in ile de ES_LOG_DIR veriyoruz)
 path.data: /var/lib/elasticsearch
 path.logs: /var/log/elasticsearch
 
-# Ağ
 network.host: 0.0.0.0
 http.host: 0.0.0.0
 
-# Tek düğüm modu (cluster.initial_master_nodes eklemiyoruz!)
+# Tek düğüm
 discovery.type: single-node
 
-# Güvenlik (ES 9.x defaults ile uyumlu)
+# Güvenlik + Enrollment
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
+
+# HTTP TLS (Kibana, Logstash, API istemcileri)
+xpack.security.http.ssl:
+  enabled: true
+  keystore.path: certs/http.p12
+
+# Node-to-node TLS
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  keystore.path: certs/transport.p12
+  truststore.path: certs/transport.p12
