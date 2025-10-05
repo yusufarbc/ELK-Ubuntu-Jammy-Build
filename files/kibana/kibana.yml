@@ -1,14 +1,13 @@
-# Kibana dışa açık olabilir
+# =============================================================================
+# Kibana temel ayarları (dışa açık)
+# =============================================================================
+
+# Tüm arayüzlerde dinle (dış erişim için)
 server.host: "0.0.0.0"
 
-# ES'e güvenli bağlan
+# Elasticsearch'e güvenli bağlantı (ES sadece localhost'ta TLS’li)
 elasticsearch.hosts: ["https://localhost:9200"]
 elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/ca.crt"]
 
-# Enrollment token’ı alacağız
-xpack.security.enrollment.enabled: true
-
-# Kibana HTTP'yi TLS'siz bırakıyoruz (kolay erişim). İsterseniz TLS açabilirsiniz:
-# server.ssl.enabled: true
-# server.ssl.certificate: /etc/kibana/kibana.crt
-# server.ssl.key: /etc/kibana/kibana.key
+# Enrollment akışını kullanacağımız için burada kullanıcı/parola tutmuyoruz.
+# İlk açılışta "Enrollment Token" sorulduğunda betiğin ürettiği token girilir.

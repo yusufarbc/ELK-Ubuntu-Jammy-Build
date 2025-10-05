@@ -1,33 +1,40 @@
-# === Minimal, tek-node, güvenli ve çakışmasız ES yapılandırması ===
-cluster.name: elk-single
-node.name: elasticsearch-1
+# =============================================================================
+# Elasticsearch temel ayarları (single-node, TLS, sadece localhost)
+# Bu dosya paketlerin varsayılan eklediği satırlarla çakışmasın diye
+# repodan /etc/elasticsearch/elasticsearch.yml üzerine kopyalanır.
+# =============================================================================
 
+# Küme ve düğüm kimliği
+cluster.name: elk-single
+node.name: ${HOSTNAME}
+
+# Yol ayarları (Debian paket varsayılanları)
 path.data: /var/lib/elasticsearch
 path.logs: /var/log/elasticsearch
 
-# ES'yi yalnızca yerelden dinletiyoruz; dış dünyaya açmıyoruz
-network.host: 0.0.0.0
-http.host: 0.0.0.0
+# Sadece localhost dinle (ES dışa kapalı)
+network.host: 127.0.0.1
 
-# Güvenlik + TLS
+# Tek düğümlü küme (bootstrap ayar çakışmasın diye initial_master_nodes KULLANILMAZ)
+discovery.type: single-node
+
+# Güvenlik ve enrollment
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
 
-# HTTP (Kibana/CLI/Logstash ile)
+# --------------------------- HTTP (REST) TLS ----------------------------------
 xpack.security.http.ssl:
   enabled: true
-  certificate: certs/http.crt
-  key: certs/http.key
-  certificate_authorities: [ "certs/ca.crt" ]
-  client_authentication: optional        # istemcilerden mTLS istemiyoruz
+  certificate: /etc/elasticsearch/certs/http.crt
+  key: /etc/elasticsearch/certs/http.key
+  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
+  verification_mode: full
 
-# Transport (node-to-node, tek node olsa da açık kalsın)
+# -------------------------- Transport TLS -------------------------------------
+# Single-node olsa da transport katman TLS'i açık tutuyoruz.
 xpack.security.transport.ssl:
   enabled: true
+  certificate: /etc/elasticsearch/certs/transport.crt
+  key: /etc/elasticsearch/certs/transport.key
+  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
   verification_mode: certificate
-  certificate: certs/transport.crt
-  key: certs/transport.key
-  certificate_authorities: [ "certs/ca.crt" ]
-
-# Tek-node; initial_master_nodes asla yazmayın (9.x’te çatışır)
-discovery.type: single-node
