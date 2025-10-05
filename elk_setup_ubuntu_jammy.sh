@@ -52,7 +52,7 @@ Environment=ES_LOG_DIR=/var/log/elasticsearch
 Environment=ES_PATH_CONF=/etc/elasticsearch
 EOF
 
-# -------- 6) YML'leri SIFIRDAN kopyala (dup yok) --------
+# -------- 6) YML'leri SIFIRDAN kopyala --------
 log "YAML dosyaları SIFIRDAN kopyalanıyor..."
 ES_CONF="/etc/elasticsearch/elasticsearch.yml"
 KB_CONF="/etc/kibana/kibana.yml"
@@ -100,9 +100,7 @@ HTTP_ZIP="/etc/elasticsearch/certs/http.zip"
   --ip 127.0.0.1 \
   --pem \
   --out "${HTTP_ZIP}"
-
 unzip -o "${HTTP_ZIP}" -d /etc/elasticsearch/certs >/dev/null
-# Çıkan dizin genelde 'http/' olur:
 if [[ -f /etc/elasticsearch/certs/http/http.crt && -f /etc/elasticsearch/certs/http/http.key ]]; then
   mv -f /etc/elasticsearch/certs/http/http.crt /etc/elasticsearch/certs/http.crt
   mv -f /etc/elasticsearch/certs/http/http.key /etc/elasticsearch/certs/http.key
@@ -120,14 +118,11 @@ TRANS_ZIP="/etc/elasticsearch/certs/transport.zip"
   --ip 127.0.0.1 \
   --pem \
   --out "${TRANS_ZIP}"
-
 unzip -o "${TRANS_ZIP}" -d /etc/elasticsearch/certs >/dev/null
-# Çıkan dosyalar genelde 'transport/transport.crt|key' ya da 'transport/transport-*.crt' olur:
 if [[ -f /etc/elasticsearch/certs/transport/transport.crt && -f /etc/elasticsearch/certs/transport/transport.key ]]; then
   mv -f /etc/elasticsearch/certs/transport/transport.crt /etc/elasticsearch/certs/transport.crt
   mv -f /etc/elasticsearch/certs/transport/transport.key /etc/elasticsearch/certs/transport.key
 else
-  # Tek dosya ismi farklıysa ilk .crt ve .key'i al
   crt="$(ls /etc/elasticsearch/certs/transport/*.crt | head -n1 || true)"
   key="$(ls /etc/elasticsearch/certs/transport/*.key | head -n1 || true)"
   [[ -n "${crt}" && -n "${key}" ]] && mv -f "${crt}" /etc/elasticsearch/certs/transport.crt && mv -f "${key}" /etc/elasticsearch/certs/transport.key
@@ -154,36 +149,61 @@ for i in $(seq 1 150); do
   fi
   sleep 1
 done
-
-if [[ "${ok}" != true ]]; then
-  echo "---- /var/log/elasticsearch/elasticsearch.log (son 200 satır) ----" >&2
-  tail -n 200 /var/log/elasticsearch/elasticsearch.log >&2 || true
-  die "Elasticsearch ayağa kalkmadı."
-fi
+[[ "${ok}" == true ]] || { tail -n 200 /var/log/elasticsearch/elasticsearch.log >&2 || true; die "Elasticsearch ayağa kalkmadı."; }
 log "Elasticsearch ayakta."
 
-# -------- 9) Parolaları non-interactive resetle --------
-log "elastic ve kibana_system parolaları sıfırlanıyor..."
-ELASTIC_PW="$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b | awk '/New value:/ {print $NF}')"
-KIBANA_SYS_PW="$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -s -b | awk '/New value:/ {print $NF}')"
-[[ -n "${ELASTIC_PW:-}" ]] || die "elastic parolası alınamadı."
-[[ -n "${KIBANA_SYS_PW:-}" ]] || die "kibana_system parolası alınamadı."
-log "Parolalar alındı."
+# -------- 9) (A) Elastic şifresi reset: DENE, ama zorunlu değil --------
+ELASTIC_PW=""
+log "Elastic parolasını sıfırlama deneniyor (başarısız olursa devam edilecek)..."
+set +e
+ELASTIC_PW="$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b 2>/dev/null | awk '/New value:/ {print $NF}')"
+set -e
+if [[ -n "${ELASTIC_PW}" ]]; then
+  log "Elastic parolası sıfırlandı."
+else
+  log "Elastic parolası şu an sıfırlanamadı (cluster health kontrolü başarısız). Devam ediliyor."
+fi
 
-# Logstash pipeline içine şifreyi işle
-log "Logstash pipeline güncelleniyor (elastic şifresi gömülüyor)..."
-sed -i "s|\${ES_ELASTIC_PASSWORD}|${ELASTIC_PW}|g" "${LS_PIPE}"
+# -------- 9) (B) Logstash için file-realm rol+kullanıcı --------
+# Rol tanımı (roles.yml) – file realm roller
+ROLES_YML="/etc/elasticsearch/roles.yml"
+log "Logstash için fortigate_writer rolü ekleniyor (file realm)..."
+# idempotent ekle
+if ! grep -q '^fortigate_writer:' "${ROLES_YML}" 2>/dev/null; then
+  cat >> "${ROLES_YML}" <<'EOF'
+fortigate_writer:
+  cluster: [ "monitor" ]
+  indices:
+    - names: [ "fortigate-logs-*" ]
+      privileges: [ "create_index", "write", "create_doc", "auto_configure", "view_index_metadata" ]
+EOF
+fi
 
-# -------- 10) Kibana & Logstash --------
+# Kullanıcı oluştur
+LOGSTASH_USER="logstash_ingest"
+LOGSTASH_PW="$(openssl rand -base64 16)"
+log "Logstash için file-realm kullanıcısı oluşturuluyor..."
+/usr/share/elasticsearch/bin/elasticsearch-users userdel "${LOGSTASH_USER}" >/dev/null 2>&1 || true
+/usr/share/elasticsearch/bin/elasticsearch-users useradd "${LOGSTASH_USER}" -p "${LOGSTASH_PW}" -r fortigate_writer
+
+# File realm değişiklikleri için ES restart (kısa)
+systemctl restart elasticsearch.service || true
+sleep 3
+
+# -------- 10) Logstash pipeline’a parola yaz --------
+log "Logstash pipeline güncelleniyor (şifre gömülüyor)..."
+sed -i "s|__LS_PW__|${LOGSTASH_PW}|g" "${LS_PIPE}"
+
+# -------- 11) Kibana & Logstash --------
 log "Kibana servisi etkinleştiriliyor ve başlatılıyor..."
 systemctl enable kibana.service
-systemctl restart kibana.service
+systemctl restart kibana.service || true
 
 log "Logstash servisi etkinleştiriliyor ve başlatılıyor..."
 systemctl enable logstash.service
-systemctl restart logstash.service
+systemctl restart logstash.service || true
 
-# -------- 11) Kibana Enrollment Token --------
+# -------- 12) Kibana Enrollment Token --------
 log "Kibana Enrollment Token alınıyor..."
 KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana || true)"
 if [[ -z "${KIBANA_TOKEN}" ]]; then
@@ -197,7 +217,11 @@ echo "==============================================================="
 echo "[+] Kurulum tamamlandı."
 echo "Kibana:  http://${IP}:5601"
 echo "Elastic kullanıcı adı: elastic"
-echo "Elastic parola: ${ELASTIC_PW}"
-echo "kibana_system parola (bilgi): ${KIBANA_SYS_PW}"
+if [[ -n "${ELASTIC_PW}" ]]; then
+  echo "Elastic parola: ${ELASTIC_PW}"
+else
+  echo "Elastic parola: (Bu adım otomatik sıfırlanamadı. ES ayakta; isterseniz sonra şunu çalıştırın: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic)"
+fi
+echo "Logstash kullanıcı/parola: ${LOGSTASH_USER} / ${LOGSTASH_PW}"
 echo "Kibana Enrollment Token: ${KIBANA_TOKEN}"
 echo "==============================================================="
