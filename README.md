@@ -1,217 +1,263 @@
 # ELK-Ubuntu-Jammy-Build
 
-Bu repository, tek bir **Ubuntu 22.04 LTS (Jammy)** sunucusuna *agentless* Elastic Stack (Elasticsearch, Kibana, Logstash) kurmak ve temel işletim/izleme ihtiyaçlarını karşılamak için örnek script ve konfigürasyonlar içerir.
+**Amaç:**
+Ubuntu 22.04 (Jammy) üzerinde **tek komutla**, agentless (Elastic Agent/Fleet **kullanılmadan**) çalışan, **Elasticsearch yalnızca localhost**, **Kibana ve Logstash dışa açık** olacak şekilde güvenli ve idempotent bir **Elastic Stack (SIEM) log toplama** kurulumu sağlar.
+Toplama tarafında **WEF (Windows Event Forwarding), Syslog (Linux & Ağ Cihazları) ve Kaspersky** örnek pipeline’ları ile gelir. Çıktılar **ECS** uyumlu alanlara normalize edilir ve **data stream + ILM (logs-30d)** politikasına göre yönetilir.
 
 ---
 
 ## İçindekiler
 
-- [Amaç](#amaç)  
-- [Hızlı Kurulum](#hızlı-kurulum)  
-- [Kurulum Sonrası Doğrulama](#kurulum-sonrası-doğrulama)  
-- [Temel Tuning](#temel-tuning-hızlı)  
-- [Örnek Pipeline & Log Kaynakları](#örnek-pipeline--log-kaynakları-kısa)  
-- [ILM ve KQL Örnekleri](#ilm-ve-kısa-kql-örnekleri)  
-- [Operasyon Kontrolleri](#operasyon-kontrolleri-deploy-öncesi)  
-- [Dosyalar ve Güvenlik Notları](#dosyalar-ve-güvenlik-notları)  
+* [Özellikler](#özellikler)
+* [Mimari Özet](#mimari-özet)
+* [Dizin Yapısı](#dizin-yapısı)
+* [Gereksinimler](#gereksinimler)
+* [Hızlı Başlangıç](#hızlı-başlangıç)
+* [Kurulum Sonrası](#kurulum-sonrası)
+* [Log Kaynaklarını Bağlama](#log-kaynaklarını-bağlama)
+
+  * [Windows (WEF/WEC + tek Winlogbeat)](#windows-wefwec--tek-winlogbeat)
+  * [Linux & Ağ Cihazları (Syslog)](#linux--ağ-cihazları-syslog)
+  * [Kaspersky (Syslog/JSON)](#kaspersky-syslogjson)
+* [Veri Modeli, ILM ve Data Streams](#veri-modeli-ilm-ve-data-streams)
+* [Sık Karşılaşılan Sorunlar](#sık-karşılaşılan-sorunlar)
+* [Yeniden Kurulum / Sıfırlama](#yeniden-kurulum--sıfırlama)
+* [Lisans](#lisans)
 
 ---
 
-## Amaç
+## Özellikler
 
-Agentless (WEF/WEC + Winlogbeat, rsyslog vb.) yaklaşımla, tek host üzerinde hızlı kurulup test edilebilen bir **Elastic SIEM referansı** sunmak.
+* **Tek komutla kurulum:** `elk_setup_ubuntu_jammy.sh`
+* **Güvenli & sade ağ modeli:**
 
-> Önerilen OS: **Ubuntu 22.04 LTS (Jammy)**  
-> Resmi ISO: [https://releases.ubuntu.com/jammy/](https://releases.ubuntu.com/jammy/)
+  * **Elasticsearch:** TLS etkin, **yalnızca localhost:9200**
+  * **Kibana:** `0.0.0.0:5601` (dışa açık)
+  * **Logstash:** Dışa açık girişler:
+
+    * FortiGate/Beats → **5044/tcp**
+    * WEF/Winlogbeat → **5045/tcp**
+    * Syslog (RFC3164) → **5514/tcp, 5514/udp**
+    * Syslog (RFC5424 opsiyonel) → **5515/tcp**
+    * Kaspersky → **5516/tcp, 5516/udp**
+* **Sertifikalar:** CA + HTTP + Transport **PEM**, SAN: `localhost`, `127.0.0.1`, `::1`
+* **Idempotent akış:** Repo/GPG temiz ekleme, `vm.max_map_count`, systemd drop-in, keystore, roller
+* **ECS normalizasyonu:** kaynaklara göre temel alan eşleştirmeleri
+* **Data Stream + ILM:** `logs-<dataset>-default`, politika: **logs-30d** (hot→rollover + 30 günde sil)
 
 ---
 
-## Hızlı Kurulum
+## Mimari Özet
 
-### Depoyu klonlayın
+```
+[Windows Clients] --(WEF/GPO)--> [WEC] --(Winlogbeat→5045)--> [Logstash] --> [Elasticsearch (localhost TLS)]
+[Linux/Network] --(Syslog 5514/5515/5516)--> [Logstash] --> [Elasticsearch]
+                                                            └--> [Data Stream: logs-*-default] --(ILM logs-30d)-->
+[Kullanıcı] <-- HTTP/5601 --> [Kibana UI] --(Enrollment Token + elastic)--> [Elasticsearch localhost]
+```
+
+> **Not:** Agentless hedeflenmiştir. Windows tarafında **yalnız WEC** sunucusuna **Winlogbeat** kurulması önerilir (istemcilere ajan kurulmaz).
+
+---
+
+## Dizin Yapısı
+
+```
+ELK-Ubuntu-Jammy-Build/
+├─ elk_setup_ubuntu_jammy.sh
+└─ files/
+   ├─ elasticsearch/elasticsearch.yml
+   ├─ kibana/kibana.yml
+   └─ logstash/
+      ├─ fortigate.conf
+      ├─ windows_wef.conf
+      ├─ syslog.conf
+      └─ kaspersky.conf
+```
+
+---
+
+## Gereksinimler
+
+* **OS:** Ubuntu 22.04 LTS (Jammy)
+* **Ağ:** İnternet erişimi (Elastic paket deposu için)
+* **Haklar:** `sudo` (root) yetkisi
+* **Kaynak (öneri, ~20 GB/gün):**
+
+  * 8 vCPU / 32 GB RAM
+  * NVMe/SSD depolama (≥ 1 TB, saklama politikasına göre değişir)
+
+---
+
+## Hızlı Başlangıç
+
 ```bash
 git clone https://github.com/yusufarbc/ELK-Ubuntu-Jammy-Build.git
 cd ELK-Ubuntu-Jammy-Build
-```
-
-### Scripti Çalıştırın
-
-- **Environment değişkeni ile (önerilir):**
-```bash
 chmod +x elk_setup_ubuntu_jammy.sh
-sudo bash elk_setup_ubuntu_jammy.sh --non-interactive
+sudo ./elk_setup_ubuntu_jammy.sh
 ```
 
-💡 **Not:** `--dry-run` ile önce neler yapılacağını görebilirsiniz.
+**Betik sonunda göreceklerin:**
+
+* **Kibana URL** (http://<sunucu_ip>:5601)
+* **elastic** parolası
+* **Kibana Enrollment Token**
+* Logstash kullanıcı/keystore bilgisi (kullanıcı: `logstash_ingest`, parola keystore’da `ES_PW`)
 
 ---
 
-## Kurulum Sonrası Doğrulama
+## Kurulum Sonrası
 
-### Elasticsearch
-```bash
-sudo systemctl status elasticsearch
-curl -u elastic:$ELASTIC_PASSWORD -k https://localhost:9200/
-```
+* **Servis durumu**
 
-### Kibana
-```bash
-sudo systemctl status kibana
-curl -k https://localhost:5601/ -I
-```
+  ```bash
+  systemctl status elasticsearch kibana logstash --no-pager
+  ```
+* **ES sağlık kontrolü (TLS + CA)**
 
-### Logstash
-```bash
-sudo systemctl status logstash
-```
+  ```bash
+  curl -s --cacert /etc/elasticsearch/certs/ca.crt https://localhost:9200 | jq .
+  ```
+* **Logstash pipeline testi**
 
-### Temel tuning kontrolleri
-```bash
-sysctl vm.max_map_count
-sudo -u elasticsearch bash -c 'ulimit -l'
-```
+  ```bash
+  sudo /usr/share/logstash/bin/logstash --path.settings /etc/logstash -t
+  ```
+* **Kibana ilk giriş**
+
+  * Tarayıcı: `http://<sunucu_ip>:5601`
+  * **Enrollment Token** → betik çıktısından
+  * Kullanıcı: **elastic**, parola: betik çıktısından
 
 ---
 
-### Elasticsearch kullanıcısı altında komut çalıştırma
+## Log Kaynaklarını Bağlama
 
-- **Tek komut (önerilen):**
-```bash
-sudo -u elasticsearch bash -c 'ulimit -l'
-sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
-sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b
+### Windows (WEF/WEC + tek Winlogbeat)
+
+1. **WEC (Collector) hazırlığı** (Windows Server):
+
+```powershell
+wecutil qc
+winrm quickconfig
 ```
 
-- **Shell açmak (opsiyonel, her sistemde çalışmayabilir):**
-```bash
-sudo -i -u elasticsearch
-# veya
-sudo -u elasticsearch /bin/bash
-```
+2. **GPO** üzerinde istemcilere **Subscription Manager** ayarı (source-initiated), WEC adresi gösterilir.
 
-🔎 **Notlar:**  
-- `elasticsearch` kullanıcısıyla çalıştırılan bazı komutlar root yetkisi gerektirebilir.  
-- Enrollment token/parola sıfırlama işlemleri yalnızca Elasticsearch sağlıklı çalışıyorsa başarılı olur.  
+3. **Winlogbeat (yalnız WEC’e)**:
 
-Hata incelemek için:
-```bash
-sudo systemctl status elasticsearch
-sudo journalctl -u elasticsearch -b --no-pager | tail -n 100
-```
-
-Otomatik üretilmiş parolayı görmek için (sadece root):
-```bash
-sudo cat /root/.elastic_pw
-```
-
----
-
-## Temel Tuning (hızlı)
-
-```bash
-sudo sysctl -w vm.max_map_count=262144
-echo 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf
-sudo swapoff -a
-echo -e "elasticsearch soft nofile 65536
-elasticsearch hard nofile 65536" | sudo tee /etc/security/limits.d/90-elasticsearch.conf
-```
-
-💡 JVM heap: Toplam RAM’in %50’si, maksimum **32 GB** önerilir.
-
----
-
-## Örnek Pipeline & Log Kaynakları (kısa)
-
-Pipeline dosyaları: `./logstash/pipeline/`
-
-### Inputs
-```conf
-input {
-  beats { port => 5044 }
-  tcp  { port => 5514 type => "syslog" }
-  udp  { port => 5514 type => "syslog" }
-}
-```
-
-### Output (örnek)
-```conf
-output {
-  elasticsearch {
-    hosts => ["https://elasticsearch:9200"]
-    user => "elastic"
-    password => "${ELASTIC_PASSWORD}"
-    index => "logs-%{[event][dataset]}-%{+YYYY.MM.dd}"
-    ilm_enabled => true
-    ilm_policy => "logs-30d-delete"
-  }
-}
-```
-
-### Winlogbeat (WEC kolektörü) örnek
 ```yaml
+# C:\Program Files\Elastic\Beats\winlogbeat\winlogbeat.yml
 winlogbeat.event_logs:
   - name: ForwardedEvents
+
 output.logstash:
-  hosts: ["<SIEM_HOST_IP>:5044"]
+  hosts: ["<logstash_ip>:5045"]
+  # TLS gerekirse burada CA/sertifika tanımlayın
 ```
 
-### rsyslog istemci örneği
+> İstemcilere ajan yoktur; olaylar WEF ile WEC’e gelir, **yalnız WEC** Logstash’a gönderir.
+
+---
+
+### Linux & Ağ Cihazları (Syslog)
+
+* Cihaz/host syslog hedefi: **<logstash_ip> : 5514/udp** (veya 5514/tcp)
+* RFC5424 gönderiyorsanız: **5515/tcp**
+
+**rsyslog örneği (Linux kaynak):**
+
+```conf
+# /etc/rsyslog.d/90-logstash.conf
+*.*  @<logstash_ip>:5514   # UDP
+#*.* @@<logstash_ip>:5514  # TCP
 ```
-*.* @@SIEM_HOST_IP:5514
+
+```bash
+sudo systemctl restart rsyslog
 ```
 
 ---
 
-## ILM ve Kısa KQL Örnekleri
+### Kaspersky (Syslog/JSON)
 
-### Örnek ILM (30 gün sonra silme)
-```json
-PUT _ilm/policy/logs-30d-delete
-{
-  "policy": {
-    "phases": {
-      "hot": {},
-      "delete": {
-        "min_age": "30d",
-        "actions": { "delete": {} }
-      }
-    }
-  }
-}
-```
+* **Syslog** gönderebilen KSC/Agent → hedef **5516/udp,tcp**
+* JSON çıkışı varsa aynı porta “raw” olarak iletebilirsiniz (pipeline JSON’u otomatik parse eder).
 
-### Örnek KQL
-- **Brute-force (Windows 4625):**
-```
-event.code:4625 and winlog.logon.type:3 and NOT user.name: "Guest"
-```
+---
 
-- **Şüpheli PowerShell:**
-```
-event.code:4688 and process.name: "powershell.exe" and process.command_line: ("-enc" or "-EncodedCommand" or "IEX")
+## Veri Modeli, ILM ve Data Streams
+
+* Logstash, Elasticsearch’e **data_stream** olarak yazar:
+
+  * `logs-<dataset>-default`
+  * Dataset örnekleri: `fortigate`, `windows`, `syslog`, `kaspersky`
+* **ILM politikası:** `logs-30d` (hot rollover: 25 GB/7 gün; silme: 30 gün)
+* **Index template:** `logs-ds-template` (pattern: `logs-*-*`, data_stream etkin)
+
+**Kontrol komutları:**
+
+```bash
+# Data stream listesi
+curl -s --cacert /etc/elasticsearch/certs/ca.crt -u elastic:<PW> https://localhost:9200/_data_stream?pretty
+
+# ILM policy
+curl -s --cacert /etc/elasticsearch/certs/ca.crt -u elastic:<PW> https://localhost:9200/_ilm/policy/logs-30d?pretty
+
+# Index template
+curl -s --cacert /etc/elasticsearch/certs/ca.crt -u elastic:<PW> https://localhost:9200/_index_template/logs-ds-template?pretty
 ```
 
 ---
 
-## Operasyon Kontrolleri (deploy öncesi)
+## Sık Karşılaşılan Sorunlar
 
-- `vm.max_map_count` ayarlı  
-- Swap kapatıldı veya swappiness düşük  
-- Elasticsearch data volume mount edildi  
-- Logstash pipeline test edildi  
-- ILM policy ve index template yüklendi  
-- Snapshot repo (S3/MinIO) konfigüre edildi  
+* **Kibana ES’e bağlanamıyor**
+
+  * ES ayakta mı? `curl https://localhost:9200` (CA ile) kontrol et
+  * `/etc/kibana/kibana.yml` → `elasticsearch.hosts: ["https://localhost:9200"]`
+* **Enrollment Token yok**
+
+  ```bash
+  sudo /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
+  ```
+* **Logstash veri yazmıyor**
+
+  * `journalctl -u logstash -f` ile hata oku
+  * Keystore’da **ES_PW** var mı?
+  * `logstash -t` ile pipeline doğrula
+* **Port çatışması**
+
+  * `sudo ss -lntup | egrep ':(5044|5045|5514|5515|5516|5601)\b'`
+* **ES açılmıyor**
+
+  * `journalctl -u elasticsearch -e`
+  * Disk/izin/heap kontrolü, `vm.max_map_count=262144`
 
 ---
 
-## Dosyalar ve Güvenlik Notları
+## Yeniden Kurulum / Sıfırlama
 
-- `elk_setup_ubuntu_jammy.sh` → apt tabanlı kurulum scripti (env/secrets desteğiyle)  
-- `logstash/pipeline/` → pipeline örnekleri  
-- `CONFIGURATIONS.md`, `SINGLE_HOST_QUICKSTART.md` → kısa yönlendirme dokümanları  
+Sertifikaları (localhost SAN) baştan üretmek istersen:
 
-🔒 **Güvenlik ve katkı:**  
-- Gerçek şifreleri ve sertifikaları repoya koymayın.  
-- Üretimde TLS, erişim kontrolü ve secrets yönetimi uygulayın.  
+```bash
+sudo systemctl stop elasticsearch kibana logstash
+sudo rm -rf /etc/elasticsearch/certs/http* /etc/elasticsearch/certs/transport* \
+            /etc/elasticsearch/certs/http /etc/elasticsearch/certs/transport \
+            /etc/elasticsearch/certs/instances_*.yml
+sudo ./elk_setup_ubuntu_jammy.sh
+```
 
 ---
+
+## Lisans
+
+* **Elastic Stack Basic (Ücretsiz)** özellikleri hedef alınmıştır.
+* Güvenlik (TLS/auth) **etkindir**; Elasticsearch yalnızca **localhost**’tan erişilir.
+* Depoya ait betik/konfigürasyonlar “as is” sağlanır; üretim için kendi politika ve güvenlik gereksinimlerinize göre gözden geçiriniz.
+
+---
+
+**Katkı / Geri Bildirim:**
+Hataları, iyileştirme önerilerini ve ek kaynak taleplerini **Issues** bölümünden iletebilirsin. 🙌

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Elastic Stack (Elasticsearch, Kibana, Logstash) Otomatik Kurulum - Ubuntu 22.04
-# Tasarım: ES yalnız localhost (TLS), Kibana/Logstash dışa açık, agentless toplama
+# Tasarım: ES yalnızca localhost:9200 (TLS), Kibana/Logstash dışa açık, agentless toplama
 # =============================================================================
-set -Eeuo pipefail
-shopt -s extglob
+
+# Güvenli kabuk ayarları (set -u kaldırıldı; erken unbound riskini engellemek için)
+set -eE -o pipefail
 
 # ---- DEBUG MODU (isteğe bağlı) ----
-if [[ "${DEBUG:-0}" == "1" ]]; then
-  set -x
-fi
+# DEBUG=1 ./elk_setup_ubuntu_jammy.sh  => ayrıntılı izleme
+if [[ "${DEBUG:-0}" == "1" ]]; then set -x; fi
 
 # ---- GENEL AYARLAR ----
 ES_VER="8.x"
@@ -55,25 +55,25 @@ warn(){ echo -e "\e[1;33m[!]\e[0m $*"; }
 err(){ echo -e "\e[1;31m[-]\e[0m $*"; }
 
 CURRENT_STEP="başlangıç"
-step(){ CURRENT_STEP="$*"; msg "→ ${CURRENT_STEP}"; }
+step(){ CURRENT_STEP="$*"; echo -e "\e[1;36m→ ${CURRENT_STEP}\e[0m"; }
 
 # Hata olursa bağlam yaz
 on_error(){
   local ec=$?
-  err "Hata: adım='${CURRENT_STEP}', satır=${BASH_LINENO[0]}"
-  # İlgili servis logları (varsa) kısa kuyruk
-  if [[ "${CURRENT_STEP}" == *"Servis"* || "${CURRENT_STEP}" == *"ES hazır"* ]]; then
-    journalctl -u elasticsearch -n 50 --no-pager || true
-    journalctl -u kibana -n 50 --no-pager || true
-    journalctl -u logstash -n 50 --no-pager || true
+  err "Hata adımında düştü: '${CURRENT_STEP}'"
+  if command -v journalctl >/dev/null 2>&1; then
+    echo "----- elasticsearch journal (son 50) -----"; journalctl -u elasticsearch -n 50 --no-pager || true
+    echo "----- kibana journal (son 50) -----------"; journalctl -u kibana -n 50 --no-pager || true
+    echo "----- logstash journal (son 50) ---------"; journalctl -u logstash -n 50 --no-pager || true
   fi
   exit "${ec}"
 }
 trap on_error ERR
 
+# ---- ROOT KONTROL ----
 require_root(){ [[ $EUID -ne 0 ]] && { err "Bu betiği root olarak çalıştırın (sudo)."; exit 1; }; }
 
-# ---- AŞAMA 1: APT repo + bağımlılıklar ----
+# ---- 1: APT repo + bağımlılıklar ----
 setup_repo(){
   step "1/10 APT deposu ve bağımlılıklar"
   apt-get update -y
@@ -85,7 +85,7 @@ setup_repo(){
     chmod 0644 "${ELASTIC_KEY}"
   fi
 
-  # olası duplike repo satırlarını temizle
+  # Olası duplike repo satırlarını temizle
   sed -i '/artifacts.elastic.co/d' /etc/apt/sources.list || true
   find /etc/apt/sources.list.d -type f -name '*.list' -exec sed -i '/artifacts.elastic.co\/packages\/8.x\/apt/d' {} \; || true
 
@@ -94,20 +94,20 @@ setup_repo(){
   apt-get update -y
 }
 
-# ---- AŞAMA 2: Sistem parametreleri ----
+# ---- 2: Sistem parametreleri ----
 tune_sys(){
   step "2/10 vm.max_map_count ayarı"
   echo "vm.max_map_count=262144" > /etc/sysctl.d/99-elastic.conf
   sysctl -p /etc/sysctl.d/99-elastic.conf >/dev/null
 }
 
-# ---- AŞAMA 3: Paketler ----
+# ---- 3: Paketler ----
 install_stack(){
   step "3/10 Elasticsearch, Kibana, Logstash kurulumu"
   DEBIAN_FRONTEND=noninteractive apt-get install -y elasticsearch kibana logstash
 }
 
-# ---- AŞAMA 4: Dizinler/izinler ----
+# ---- 4: Dizin/izin ----
 prepare_dirs(){
   step "4/10 Dizin ve izinler"
   install -d -m 0750 "${ES_CERT_DIR}" && chown root:elasticsearch "${ES_CERT_DIR}"
@@ -116,7 +116,7 @@ prepare_dirs(){
   chown -R elasticsearch:elasticsearch "${ES_LOG_DIR}" "${ES_DATA_DIR}" || true
 }
 
-# ---- AŞAMA 5: systemd drop-in ----
+# ---- 5: systemd drop-in ----
 systemd_dropin(){
   step "5/10 systemd drop-in (ES_PATH_CONF/ES_LOG_DIR)"
   install -d -m 0755 /etc/systemd/system/elasticsearch.service.d
@@ -128,15 +128,15 @@ EOF
   systemctl daemon-reload
 }
 
-# ---- AŞAMA 6: Sertifikalar (yalnız localhost) ----
+# ---- 6: Sertifikalar (yalnız localhost) ----
 generate_certs(){
   step "6/10 TLS sertifikaları (CA+HTTP+Transport) — SAN=localhost/127.0.0.1/::1"
   # CA
   if [[ ! -f "${ES_CA_CRT}" || ! -f "${ES_CA_KEY}" ]]; then
     "${ES_BIN}/elasticsearch-certutil" ca --silent --pem --out "${ES_CERT_DIR}/ca.zip"
     unzip -o "${ES_CERT_DIR}/ca.zip" -d "${ES_CERT_DIR}/ca" >/dev/null
-    local CA_CRT; CA_CRT="$(find "${ES_CERT_DIR}/ca" -name '*.crt' | head -n1)"
-    local CA_KEY; CA_KEY="$(find "${ES_CERT_DIR}/ca" -name '*.key' | head -n1)"
+    CA_CRT="$(find "${ES_CERT_DIR}/ca" -name '*.crt' | head -n1)"
+    CA_KEY="$(find "${ES_CERT_DIR}/ca" -name '*.key' | head -n1)"
     cp -f "${CA_CRT}" "${ES_CA_CRT}"
     cp -f "${CA_KEY}" "${ES_CA_KEY}"
     chmod 0644 "${ES_CA_CRT}"
@@ -165,8 +165,8 @@ YAML
       --out "${ES_CERT_DIR}/http.zip" \
       --ca-cert "${ES_CA_CRT}" --ca-key "${ES_CA_KEY}"
     unzip -o "${ES_CERT_DIR}/http.zip" -d "${ES_CERT_DIR}/http" >/dev/null
-    local HCRT; HCRT="$(find "${ES_CERT_DIR}/http" -name '*.crt' | head -n1)"
-    local HKEY; HKEY="$(find "${ES_CERT_DIR}/http" -name '*.key' | head -n1)"
+    HCRT="$(find "${ES_CERT_DIR}/http" -name '*.crt' | head -n1)"
+    HKEY="$(find "${ES_CERT_DIR}/http" -name '*.key' | head -n1)"
     cp -f "${HCRT}" "${ES_HTTP_CRT}"
     cp -f "${HKEY}" "${ES_HTTP_KEY}"
     chmod 0640 "${ES_HTTP_KEY}"
@@ -180,8 +180,8 @@ YAML
       --out "${ES_CERT_DIR}/transport.zip" \
       --ca-cert "${ES_CA_CRT}" --ca-key "${ES_CA_KEY}"
     unzip -o "${ES_CERT_DIR}/transport.zip" -d "${ES_CERT_DIR}/transport" >/dev/null
-    local TCRT; TCRT="$(find "${ES_CERT_DIR}/transport" -name '*.crt' | head -n1)"
-    local TKEY; TKEY="$(find "${ES_CERT_DIR}/transport" -name '*.key' | head -n1)"
+    TCRT="$(find "${ES_CERT_DIR}/transport" -name '*.crt' | head -n1)"
+    TKEY="$(find "${ES_CERT_DIR}/transport" -name '*.key' | head -n1)"
     cp -f "${TCRT}" "${ES_TRANS_CRT}"
     cp -f "${TKEY}" "${ES_TRANS_KEY}"
     chmod 0640 "${ES_TRANS_KEY}"
@@ -193,9 +193,9 @@ YAML
   chmod 0644 "${LOGSTASH_ES_CA}"
 }
 
-# ---- AŞAMA 7: Konfig dağıtımı ----
+# ---- 7: Konfig dağıtımı ----
 deploy_configs(){
-  step "7/10 Konfigürasyon dosyaları dağıtımı"
+  step "7/10 Konfigürasyon dosyaları"
   # ES
   install -d -m 0750 "${ES_CONF_DIR}"
   cp -f "${FILES_DIR}/elasticsearch/elasticsearch.yml" "${ES_CONF_DIR}/elasticsearch.yml"
@@ -214,7 +214,7 @@ deploy_configs(){
   chmod 0644 /etc/logstash/conf.d/*.conf
 }
 
-# ---- AŞAMA 8: Servisler + ES sağlık ----
+# ---- 8: Servisler + ES sağlık ----
 start_and_wait_es(){
   step "8/10 Servisleri enable et"
   systemctl enable "${ES_SERVICE}" "${KIBANA_SERVICE}" "${LOGSTASH_SERVICE}"
@@ -224,33 +224,27 @@ start_and_wait_es(){
   systemctl start "${KIBANA_SERVICE}" || { journalctl -u kibana -n 50 --no-pager || true; false; }
   systemctl start "${LOGSTASH_SERVICE}" || { journalctl -u logstash -n 50 --no-pager || true; false; }
 
-  step "8/10 Elasticsearch hazır bekleyiş (cluster health yellow)"
-  # Önce TCP TLS testi
+  step "8/10 Elasticsearch hazır bekleyiş"
+  # TCP/TLS hazır mı?
   for _ in {1..60}; do
     if curl -s --cacert "${ES_CA_CRT}" https://localhost:9200 >/dev/null 2>&1; then break; fi
     sleep 2
   done
-  # Sonra health (yellow yeter)
-  curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:changeme" \
-    "https://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=60s" >/dev/null || true
-  # Not: auth burada dummy; reset-password sonrası doğru auth kullanılacak.
 }
 
-# ---- AŞAMA 9: Kimlikler, keystore, enrollment ----
+# ---- 9: Kimlikler, keystore, enrollment ----
 secure_identities(){
   step "9/10 elastic parolasını batch reset"
-  local RET=0 RAW=""
-  RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null)" || RET=$?
-  if [[ ${RET} -ne 0 || -z "${RAW}" ]]; then
-    # Bazen servis yeni kalktığında hemen hazır olmayabiliyor; kısa bekle ve tekrar dene
+  RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null || true)"
+  if [[ -z "${RAW}" ]]; then
     sleep 5
-    RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null)" || true
+    RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null || true)"
   fi
   ELASTIC_PW="$(echo "${RAW}" | awk '{print $NF}' | tail -n1)"
-  [[ -z "${ELASTIC_PW}" ]] && { err "elastic parolası alınamadı. ES günlüklerini kontrol edin."; journalctl -u elasticsearch -n 50 --no-pager || true; exit 1; }
+  [[ -z "${ELASTIC_PW}" ]] && { err "elastic parolası alınamadı."; exit 1; }
 
   step "9/10 Logstash rol/kullanıcı ve keystore"
-  local LS_PW; LS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
+  LS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
 
   curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
     -H 'Content-Type: application/json' -X PUT \
@@ -261,13 +255,13 @@ secure_identities(){
         "names": ["logs-*-*"],
         "privileges": ["create_index","write","create","view_index_metadata"]
       }]
-    }' >/dev/null || warn "rol (logstash_writer) oluşturulamadı (zaten var olabilir)."
+    }' >/dev/null || warn "rol (logstash_writer) zaten var olabilir."
 
   curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
     -H 'Content-Type: application/json' -X POST \
     https://localhost:9200/_security/user/logstash_ingest \
     -d "{\"password\":\"${LS_PW}\",\"roles\":[\"logstash_writer\"]}" >/dev/null || \
-    warn "kullanıcı (logstash_ingest) oluşturulamadı (zaten var olabilir)."
+    warn "kullanıcı (logstash_ingest) zaten var olabilir."
 
   /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash create 2>/dev/null || true
   (echo "${LS_PW}") | /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash add --force ES_PW >/dev/null
@@ -277,17 +271,14 @@ secure_identities(){
   step "9/10 Kibana enrollment token"
   ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>/dev/null || true)"
   if [[ -z "${ENROLL_TOKEN}" ]]; then
-    # kısa bekle ve bir kez daha dene
     sleep 3
     ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>/dev/null || true)"
-    [[ -z "${ENROLL_TOKEN}" ]] && warn "Enrollment token alınamadı (ES hazır mı, TLS/SAN doğru mu?)."
   fi
 }
 
-# ---- AŞAMA 10: ILM ve index template (data stream) ----
+# ---- 10: ILM + template (data stream) ----
 setup_ilm_templates(){
   step "10/10 ILM (logs-30d) + index template (logs-*-*)"
-  # ILM policy
   curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
     -H 'Content-Type: application/json' -X PUT \
     https://localhost:9200/_ilm/policy/logs-30d \
@@ -298,20 +289,17 @@ setup_ilm_templates(){
           "delete": {"min_age":"30d","actions":{"delete":{}}}
         }
       }
-    }' >/dev/null || warn "ILM policy oluşturulamadı (zaten var olabilir)."
+    }' >/dev/null || warn "ILM policy var olabilir."
 
-  # Data stream template
   curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
     -H 'Content-Type: application/json' -X PUT \
     https://localhost:9200/_index_template/logs-ds-template \
     -d '{
       "index_patterns": ["logs-*-*"],
       "data_stream": {},
-      "template": {
-        "settings": { "index.lifecycle.name": "logs-30d" }
-      },
+      "template": { "settings": { "index.lifecycle.name": "logs-30d" } },
       "priority": 200
-    }' >/dev/null || warn "index template oluşturulamadı (zaten var olabilir)."
+    }' >/dev/null || warn "index template var olabilir."
 }
 
 # ---- UFW (varsa) ----
@@ -351,6 +339,7 @@ print_summary(){
   echo "========================================================"
 }
 
+# ---- MAIN ----
 main(){
   require_root
   msg "Elastic Stack (agentless) kurulum başlıyor..."
