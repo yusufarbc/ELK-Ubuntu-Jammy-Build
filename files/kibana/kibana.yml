@@ -1,11 +1,5 @@
 server.host: "0.0.0.0"
-
-# Enrollment açık (ilk bağlantı için)
-xpack.security.enrollment.enabled: true
-
-# ES uçları ve CA
 elasticsearch.hosts: ["https://localhost:9200"]
-elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/ca.crt"]
-
-# Kibana tarafında server SSL gerekmiyor (reverse proxy yok)
-# server.ssl.enabled: false
+elasticsearch.ssl.certificateAuthorities: [ "/etc/elasticsearch/certs/ca.crt" ]
+xpack.security.enrollment.enabled: true
+# Enrollment kullanılacağı için kullanıcı/şifre GÖMMÜYORUZ.
