@@ -6,12 +6,17 @@ die(){ echo "[-] $*" >&2; exit 1; }
 [[ $(id -u) -eq 0 ]] || die "Lütfen sudo/root ile çalıştırın."
 export DEBIAN_FRONTEND=noninteractive
 
-BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
-FILES_DIR="${BASE_DIR}/files"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+ES_YML_SRC="${REPO_DIR}/files/elasticsearch/elasticsearch.yml"
+KB_YML_SRC="${REPO_DIR}/files/kibana/kibana.yml"
+LS_CONF_SRC="${REPO_DIR}/files/logstash/fortigate.conf"
 
-# ---------- 0) Paketler & depo (idempotent) ----------
+# ------------------------------------------------------------
+# 1) Bağımlılıklar ve Elastic depo
+# ------------------------------------------------------------
 log "Paket listesi güncelleniyor..."
 apt-get update -y
+
 log "Gerekli bağımlılıklar kuruluyor..."
 apt-get install -y curl wget jq unzip apt-transport-https gnupg2
 
@@ -29,12 +34,16 @@ apt-get update -y
 
 log "Elasticsearch kuruluyor..."
 apt-get install -y elasticsearch
+
 log "Kibana kuruluyor..."
 apt-get install -y kibana
+
 log "Logstash kuruluyor..."
 apt-get install -y logstash
 
-# ---------- 1) Kernel & dizin/izinler ----------
+# ------------------------------------------------------------
+# 2) Kernel param, dizin-izin ve systemd override
+# ------------------------------------------------------------
 log "vm.max_map_count ayarlanıyor..."
 echo 'vm.max_map_count=262144' > /etc/sysctl.d/99-elasticsearch.conf
 sysctl -p /etc/sysctl.d/99-elasticsearch.conf >/dev/null
@@ -44,125 +53,171 @@ install -d -m 0750 -o elasticsearch -g elasticsearch /var/lib/elasticsearch
 install -d -m 0750 -o elasticsearch -g elasticsearch /var/log/elasticsearch
 install -d -m 0750 -o elasticsearch -g elasticsearch /etc/elasticsearch/certs
 
-# ---------- 2) systemd drop-in (log ve conf yolu garanti) ----------
 log "systemd drop-in override yazılıyor..."
-mkdir -p /etc/systemd/system/elasticsearch.service.d
+install -d /etc/systemd/system/elasticsearch.service.d
 cat >/etc/systemd/system/elasticsearch.service.d/override.conf <<'EOF'
 [Service]
 Environment=ES_LOG_DIR=/var/log/elasticsearch
 Environment=ES_PATH_CONF=/etc/elasticsearch
 EOF
 
-# ---------- 3) TLS: CA + HTTP/Transport (PEM) ----------
-log "TLS CA ve HTTP/Transport sertifikaları (PEM) oluşturuluyor..."
-CA_P12="/etc/elasticsearch/certs/elastic-stack-ca.p12"
-/usr/share/elasticsearch/bin/elasticsearch-certutil ca --silent --out "${CA_P12}" --pass ""
-
-# CA PEM (Kibana/Logstash kullanacak)
-openssl pkcs12 -in "${CA_P12}" -nokeys -passin pass: -out /etc/elasticsearch/certs/ca.crt >/dev/null 2>&1
-chown elasticsearch:elasticsearch /etc/elasticsearch/certs/ca.crt
-chmod 0640 /etc/elasticsearch/certs/ca.crt
-
-# SAN’lar: localhost, 127.0.0.1, IP, FQDN
-IP="$(hostname -I | awk '{print $1}')"
-FQDN="$(hostname -f 2>/dev/null || hostname)"
-cat >/etc/elasticsearch/certs/instances.yml <<EOF
-instances:
-  - name: http
-    dns: [ "localhost", "${FQDN}" ]
-    ip:  [ "127.0.0.1", "${IP}" ]
-  - name: transport
-    dns: [ "localhost" ]
-    ip:  [ "127.0.0.1" ]
-EOF
-chown elasticsearch:elasticsearch /etc/elasticsearch/certs/instances.yml
-chmod 0640 /etc/elasticsearch/certs/instances.yml
-
-# HTTP cert/key PEM
-HTTP_ZIP="/etc/elasticsearch/certs/http.zip"
-/usr/share/elasticsearch/bin/elasticsearch-certutil cert --silent --ca "${CA_P12}" --ca-pass "" \
-  --pem --in /etc/elasticsearch/certs/instances.yml --out "${HTTP_ZIP}"
-unzip -o "${HTTP_ZIP}" -d /etc/elasticsearch/certs >/dev/null
-crt="$(find /etc/elasticsearch/certs -type f -name "*.crt" | grep /http/ | head -n1)"
-key="$(find /etc/elasticsearch/certs -type f -name "*.key" | grep /http/ | head -n1)"
-mv -f "$crt" /etc/elasticsearch/certs/http.crt
-mv -f "$key" /etc/elasticsearch/certs/http.key
-rm -rf /etc/elasticsearch/certs/http "${HTTP_ZIP}"
-chown elasticsearch:elasticsearch /etc/elasticsearch/certs/http.crt /etc/elasticsearch/certs/http.key
-chmod 0640 /etc/elasticsearch/certs/http.crt /etc/elasticsearch/certs/http.key
-
-# Transport cert/key PEM
-TRANS_ZIP="/etc/elasticsearch/certs/transport.zip"
-/usr/share/elasticsearch/bin/elasticsearch-certutil cert --silent --ca "${CA_P12}" --ca-pass "" \
-  --name transport --dns localhost --ip 127.0.0.1 --pem --out "${TRANS_ZIP}"
-unzip -o "${TRANS_ZIP}" -d /etc/elasticsearch/certs >/dev/null
-tcrt="$(find /etc/elasticsearch/certs -type f -name "*.crt" | grep /transport/ | head -n1)"
-tkey="$(find /etc/elasticsearch/certs -type f -name "*.key" | grep /transport/ | head -n1)"
-mv -f "$tcrt" /etc/elasticsearch/certs/transport.crt
-mv -f "$tkey" /etc/elasticsearch/certs/transport.key
-rm -rf /etc/elasticsearch/certs/transport "${TRANS_ZIP}"
-chown elasticsearch:elasticsearch /etc/elasticsearch/certs/transport.crt /etc/elasticsearch/certs/transport.key
-chmod 0640 /etc/elasticsearch/certs/transport.crt /etc/elasticsearch/certs/transport.key
-
-# ---------- 4) YAML dosyaları REPODAN kopyala (SIFIRDAN) ----------
-log "YAML dosyaları SIFIRDAN kopyalanıyor..."
-install -m 0640 -o elasticsearch -g elasticsearch "${FILES_DIR}/elasticsearch/elasticsearch.yml" /etc/elasticsearch/elasticsearch.yml
-install -m 0644 -o kibana        -g kibana        "${FILES_DIR}/kibana/kibana.yml"           /etc/kibana/kibana.yml
-install -m 0644 "${FILES_DIR}/logstash/fortigate.conf" /etc/logstash/conf.d/fortigate.conf
-
-# ---------- 5) Elasticsearch başlat & health ----------
-log "Elasticsearch servisi etkinleştiriliyor ve başlatılıyor..."
 systemctl daemon-reload
-systemctl enable elasticsearch.service
-systemctl restart elasticsearch.service || true
+
+# ------------------------------------------------------------
+# 3) Sertifikalar: CA + HTTP + Transport (PEM) ve geniş SAN
+# ------------------------------------------------------------
+log "TLS CA ve HTTP/Transport sertifikaları (PEM) oluşturuluyor..."
+
+ES_CERT_DIR="/etc/elasticsearch/certs"
+pushd "${ES_CERT_DIR}" >/dev/null
+
+# CA (PEM)
+if [[ ! -f ca/ca.crt || ! -f ca/ca.key ]]; then
+  rm -rf ca ca.zip
+  /usr/share/elasticsearch/bin/elasticsearch-certutil ca --pem --out ca.zip
+  unzip -qo ca.zip -d .
+  rm -f ca.zip
+fi
+
+# Makine kimlikleri
+HOST_SHORT="$(hostname -s || echo localhost)"
+HOST_FQDN="$(hostname -f || echo ${HOST_SHORT})"
+
+# Tüm non-loopback IP'ler
+IPS=()
+while read -r ip; do
+  [[ -z "$ip" ]] && continue
+  [[ "$ip" == 127.* ]] && continue
+  IPS+=("$ip")
+done < <(hostname -I 2>/dev/null | tr ' ' '\n')
+
+# HTTP sertifikası
+if [[ ! -f http.crt || ! -f http.key ]]; then
+  rm -rf http http.zip
+  # --dns ve --ip parametrelerini çoklayarak geçiyoruz
+  DNS_ARGS=(--dns localhost --dns "${HOST_SHORT}" --dns "${HOST_FQDN}")
+  IP_ARGS=(--ip 127.0.0.1)
+  for ip in "${IPS[@]}"; do IP_ARGS+=(--ip "$ip"); done
+
+  /usr/share/elasticsearch/bin/elasticsearch-certutil cert \
+    --name http --pem \
+    --ca-cert ca/ca.crt --ca-key ca/ca.key \
+    "${DNS_ARGS[@]}" "${IP_ARGS[@]}" \
+    --out http.zip
+
+  unzip -qo http.zip -d http
+  # çıktı: http/http.crt ve http/http.key
+  install -m 0640 -o elasticsearch -g elasticsearch http/http.crt http.crt
+  install -m 0640 -o elasticsearch -g elasticsearch http/http.key http.key
+  rm -rf http http.zip
+fi
+
+# Transport sertifikası
+if [[ ! -f transport.crt || ! -f transport.key ]]; then
+  rm -rf transport transport.zip
+  DNS_ARGS=(--dns "${HOST_SHORT}" --dns "${HOST_FQDN}")
+  IP_ARGS=(--ip 127.0.0.1)
+  for ip in "${IPS[@]}"; do IP_ARGS+=(--ip "$ip"); done
+
+  /usr/share/elasticsearch/bin/elasticsearch-certutil cert \
+    --name transport --pem \
+    --ca-cert ca/ca.crt --ca-key ca/ca.key \
+    "${DNS_ARGS[@]}" "${IP_ARGS[@]}" \
+    --out transport.zip
+
+  unzip -qo transport.zip -d transport
+  install -m 0640 -o elasticsearch -g elasticsearch transport/transport.crt transport.crt
+  install -m 0640 -o elasticsearch -g elasticsearch transport/transport.key transport.key
+  rm -rf transport transport.zip
+fi
+
+# CA'yı da world-readable yapmayın; yalnızca gerekli servisler okuyacak
+install -m 0644 -o root -g elasticsearch ca/ca.crt ca.crt
+chown -R elasticsearch:elasticsearch "${ES_CERT_DIR}"
+
+popd >/dev/null
+
+# ------------------------------------------------------------
+# 4) YAML dosyalarını SIFIRDAN kopyala (duplikasyon yok)
+# ------------------------------------------------------------
+log "YAML dosyaları SIFIRDAN kopyalanıyor..."
+install -m 0644 -o elasticsearch -g elasticsearch "${ES_YML_SRC}" /etc/elasticsearch/elasticsearch.yml
+install -m 0644 -o root -g kibana        "${KB_YML_SRC}" /etc/kibana/kibana.yml
+install -m 0644 -o root -g root          "${LS_CONF_SRC}" /etc/logstash/conf.d/fortigate.conf
+
+# ------------------------------------------------------------
+# 5) Elasticsearch: enable+start ve sağlık
+# ------------------------------------------------------------
+log "Elasticsearch servisi etkinleştiriliyor ve başlatılıyor..."
+systemctl enable --now elasticsearch.service
 
 log "Elasticsearch başlıyor (maks 150s bekleniyor)..."
+CA="/etc/elasticsearch/certs/ca.crt"
 for i in $(seq 1 150); do
-  if curl -s --cacert /etc/elasticsearch/certs/ca.crt https://localhost:9200 >/dev/null 2>&1; then
+  if curl -s --cacert "$CA" https://localhost:9200 >/dev/null 2>&1; then
+    log "Elasticsearch ayakta."
     break
   fi
   sleep 1
-  if [[ $i -eq 150 ]]; then
-    journalctl -u elasticsearch.service --no-pager | tail -n 200 >&2
-    die "Elasticsearch ayağa kalkmadı."
-  fi
+  [[ $i -eq 150 ]] && { journalctl -u elasticsearch --no-pager | tail -n 200 >&2; die "Elasticsearch ayağa kalkmadı."; }
 done
-log "Elasticsearch ayakta."
 
-# ---------- 6) elastic parolası sıfırla ----------
+# ------------------------------------------------------------
+# 6) Şifreler ve kullanıcılar (hostname/SAN artık eşleşiyor)
+# ------------------------------------------------------------
 log "elastic parolası sıfırlanıyor..."
 ELASTIC_PW="$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b | awk '/New value:/ {print $NF}')"
-[[ -n "${ELASTIC_PW}" ]] || die "elastic parolası alınamadı."
+[[ -n "${ELASTIC_PW:-}" ]] || die "elastic parolası alınamadı."
 
-# Logstash keystore’a şifreyi güvenli koy (fortigate.conf dosyasını değiştirmiyoruz)
-log "Logstash keystore'a ES parolası yazılıyor..."
-/usr/share/logstash/bin/logstash-keystore create --force >/dev/null 2>&1 || true
-echo "${ELASTIC_PW}" | /usr/share/logstash/bin/logstash-keystore add ES_PW --stdin --force
+# Logstash için minimal role + user
+log "Logstash role ve user oluşturuluyor..."
+curl -sk --cacert "$CA" -u "elastic:${ELASTIC_PW}" \
+  -X PUT "https://localhost:9200/_security/role/logstash_writer" \
+  -H 'Content-Type: application/json' -d '{
+    "cluster": ["monitor"],
+    "indices": [
+      { "names": ["fortigate-logs-*"], "privileges": ["create_index","write","create_doc","auto_configure","view_index_metadata"] }
+    ]
+  }' >/dev/null
 
-# ---------- 7) Kibana & Logstash ----------
+# güçlü parola üret
+LOGSTASH_PW="$(openssl rand -base64 24)"
+curl -sk --cacert "$CA" -u "elastic:${ELASTIC_PW}" \
+  -X POST "https://localhost:9200/_security/user/logstash_ingest" \
+  -H 'Content-Type: application/json' -d "{
+    \"password\" : \"${LOGSTASH_PW}\",
+    \"roles\" : [\"logstash_writer\"],
+    \"full_name\" : \"Logstash Ingest\",
+    \"enabled\": true
+  }" >/dev/null || true
+
+# ------------------------------------------------------------
+# 7) Logstash keystore’a ES parolasını gizle
+# ------------------------------------------------------------
+log "Logstash keystore hazırlanıyor..."
+/usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash create 2>/dev/null || true
+echo -n "${LOGSTASH_PW}" | /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash add --stdin ES_PW >/dev/null
+
+# ------------------------------------------------------------
+# 8) Kibana enable+start ve Enrollment Token
+# ------------------------------------------------------------
 log "Kibana servisi etkinleştiriliyor ve başlatılıyor..."
-systemctl enable kibana.service
-systemctl restart kibana.service
+systemctl enable --now kibana.service || true
 
-log "Logstash servisi etkinleştiriliyor ve başlatılıyor..."
-systemctl enable logstash.service
-systemctl restart logstash.service
-
-# ---------- 8) Enrollment token ----------
 log "Kibana Enrollment Token alınıyor..."
 KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana || true)"
-if [[ -z "${KIBANA_TOKEN}" ]]; then
-  sleep 3
-  KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana || true)"
-fi
 
-IP_PRINT="${IP}"
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+: "${IP:=127.0.0.1}"
+
 echo
 echo "==============================================================="
 echo "[+] Kurulum tamamlandı."
-echo "Kibana:  http://${IP_PRINT}:5601"
-echo "Elastic kullanıcı adı: elastic"
-echo "Elastic parola: ${ELASTIC_PW}"
+echo "Kibana:  http://${IP}:5601"
+echo "Elastic   kullanıcı adı: elastic"
+echo "Elastic   parola       : ${ELASTIC_PW}"
+echo "Logstash  kullanıcı    : logstash_ingest"
+echo "Logstash  parola       : ${LOGSTASH_PW}"
 echo "Kibana Enrollment Token: ${KIBANA_TOKEN}"
-echo "Not: FortiGate/Beats için Logstash dinliyor: 0.0.0.0:5044"
+echo "CA (Kibana/Logstash için): /etc/elasticsearch/certs/ca.crt"
 echo "==============================================================="

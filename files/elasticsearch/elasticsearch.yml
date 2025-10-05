@@ -1,25 +1,33 @@
-# Elasticsearch (single-node) + TLS (PEM)
+# === Minimal, tek-node, güvenli ve çakışmasız ES yapılandırması ===
+cluster.name: elk-single
+node.name: elasticsearch-1
+
 path.data: /var/lib/elasticsearch
 path.logs: /var/log/elasticsearch
 
+# ES'yi yalnızca yerelden dinletiyoruz; dış dünyaya açmıyoruz
 network.host: 0.0.0.0
 http.host: 0.0.0.0
-discovery.type: single-node
 
+# Güvenlik + TLS
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
 
-# HTTP TLS (PEM)
+# HTTP (Kibana/CLI/Logstash ile)
 xpack.security.http.ssl:
   enabled: true
-  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
-  certificate: /etc/elasticsearch/certs/http.crt
-  key: /etc/elasticsearch/certs/http.key
+  certificate: certs/http.crt
+  key: certs/http.key
+  certificate_authorities: [ "certs/ca.crt" ]
+  client_authentication: optional        # istemcilerden mTLS istemiyoruz
 
-# Transport TLS (PEM)
+# Transport (node-to-node, tek node olsa da açık kalsın)
 xpack.security.transport.ssl:
   enabled: true
   verification_mode: certificate
-  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
-  certificate: /etc/elasticsearch/certs/transport.crt
-  key: /etc/elasticsearch/certs/transport.key
+  certificate: certs/transport.crt
+  key: certs/transport.key
+  certificate_authorities: [ "certs/ca.crt" ]
+
+# Tek-node; initial_master_nodes asla yazmayın (9.x’te çatışır)
+discovery.type: single-node
