@@ -77,61 +77,72 @@ chmod 0640 /etc/elasticsearch/jvm.options.d/heap.options
 chown root:elasticsearch /etc/elasticsearch/jvm.options.d/heap.options
 
 # -------- 7) TLS: CA + HTTP & TRANSPORT sertifikaları (PEM) --------
+
 log "TLS CA ve HTTP/Transport sertifikaları (PEM) oluşturuluyor..."
 
-# 7.1) CA (PKCS12)
 CA_P12="/etc/elasticsearch/certs/elastic-stack-ca.p12"
+# 1) CA
 /usr/share/elasticsearch/bin/elasticsearch-certutil ca \
-  --silent \
-  --out "${CA_P12}" \
-  --pass ""
-
-# 7.2) CA'yı PEM'e dönüştür (ca.crt)
+  --silent --out "${CA_P12}" --pass ""
 openssl pkcs12 -in "${CA_P12}" -nokeys -passin pass: -out /etc/elasticsearch/certs/ca.crt >/dev/null 2>&1
 
-# 7.3) HTTP sertifikası (PEM zip üret, unzip et)
+# 2) Dinamik SAN’lar için instances.yml
+IP="$(hostname -I | awk '{print $1}')"
+FQDN="$(hostname -f 2>/dev/null || hostname)"
+cat >/etc/elasticsearch/certs/instances.yml <<EOF
+instances:
+  - name: http
+    dns:
+      - localhost
+      - ${FQDN}
+    ip:
+      - 127.0.0.1
+      - ${IP}
+EOF
+chown elasticsearch:elasticsearch /etc/elasticsearch/certs/instances.yml
+chmod 0640 /etc/elasticsearch/certs/instances.yml
+
+# 3) HTTP sertifikası (PEM)
 HTTP_ZIP="/etc/elasticsearch/certs/http.zip"
 /usr/share/elasticsearch/bin/elasticsearch-certutil cert \
-  --silent \
-  --ca "${CA_P12}" \
-  --ca-pass "" \
-  --name http \
-  --dns localhost \
-  --ip 127.0.0.1 \
-  --pem \
+  --silent --ca "${CA_P12}" --ca-pass "" \
+  --pem --in /etc/elasticsearch/certs/instances.yml \
   --out "${HTTP_ZIP}"
 unzip -o "${HTTP_ZIP}" -d /etc/elasticsearch/certs >/dev/null
-if [[ -f /etc/elasticsearch/certs/http/http.crt && -f /etc/elasticsearch/certs/http/http.key ]]; then
+if [ -f /etc/elasticsearch/certs/http/http/http.crt ]; then
+  mv -f /etc/elasticsearch/certs/http/http/http.crt /etc/elasticsearch/certs/http.crt
+  mv -f /etc/elasticsearch/certs/http/http/http.key /etc/elasticsearch/certs/http.key
+elif [ -f /etc/elasticsearch/certs/http/http.crt ]; then
   mv -f /etc/elasticsearch/certs/http/http.crt /etc/elasticsearch/certs/http.crt
   mv -f /etc/elasticsearch/certs/http/http.key /etc/elasticsearch/certs/http.key
-  rm -rf /etc/elasticsearch/certs/http
+else
+  crt="$(ls /etc/elasticsearch/certs/http/*.crt | head -n1)"
+  key="$(ls /etc/elasticsearch/certs/http/*.key | head -n1)"
+  mv -f "$crt" /etc/elasticsearch/certs/http.crt
+  mv -f "$key" /etc/elasticsearch/certs/http.key
 fi
+rm -rf /etc/elasticsearch/certs/http /etc/elasticsearch/certs/http.zip
 
-# 7.4) Transport (node) sertifikası (PEM)
+# 4) Transport (node) sertifikası (PEM, localhost yeterli)
 TRANS_ZIP="/etc/elasticsearch/certs/transport.zip"
 /usr/share/elasticsearch/bin/elasticsearch-certutil cert \
-  --silent \
-  --ca "${CA_P12}" \
-  --ca-pass "" \
-  --name transport \
-  --dns localhost \
-  --ip 127.0.0.1 \
-  --pem \
-  --out "${TRANS_ZIP}"
+  --silent --ca "${CA_P12}" --ca-pass "" \
+  --name transport --dns localhost --ip 127.0.0.1 \
+  --pem --out "${TRANS_ZIP}"
 unzip -o "${TRANS_ZIP}" -d /etc/elasticsearch/certs >/dev/null
-if [[ -f /etc/elasticsearch/certs/transport/transport.crt && -f /etc/elasticsearch/certs/transport/transport.key ]]; then
+if [ -f /etc/elasticsearch/certs/transport/transport.crt ]; then
   mv -f /etc/elasticsearch/certs/transport/transport.crt /etc/elasticsearch/certs/transport.crt
   mv -f /etc/elasticsearch/certs/transport/transport.key /etc/elasticsearch/certs/transport.key
 else
   crt="$(ls /etc/elasticsearch/certs/transport/*.crt | head -n1 || true)"
   key="$(ls /etc/elasticsearch/certs/transport/*.key | head -n1 || true)"
-  [[ -n "${crt}" && -n "${key}" ]] && mv -f "${crt}" /etc/elasticsearch/certs/transport.crt && mv -f "${key}" /etc/elasticsearch/certs/transport.key
+  [ -n "$crt" ] && [ -n "$key" ] && mv -f "$crt" /etc/elasticsearch/certs/transport.crt && mv -f "$key" /etc/elasticsearch/certs/transport.key
 fi
 rm -rf /etc/elasticsearch/certs/transport
 
-# Sahiplik/izin
 chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs
 chmod 0640 /etc/elasticsearch/certs/* || true
+
 
 # -------- 8) Elasticsearch’i başlat ve bekle --------
 log "Elasticsearch servisi etkinleştiriliyor ve başlatılıyor..."
