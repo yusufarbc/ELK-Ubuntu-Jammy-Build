@@ -76,34 +76,67 @@ EOF
 chmod 0640 /etc/elasticsearch/jvm.options.d/heap.options
 chown root:elasticsearch /etc/elasticsearch/jvm.options.d/heap.options
 
-# -------- 7) TLS keystore’ları non-interactive üret --------
-# http.p12 ve transport.p12 oluşturulacak ve elasticsearch.yml'daki yollarla eşleşecek.
-log "TLS keystore'ları (http.p12, transport.p12) oluşturuluyor..."
-pushd /etc/elasticsearch >/dev/null
+# -------- 7) TLS: CA + HTTP & TRANSPORT sertifikaları (PEM) --------
+log "TLS CA ve HTTP/Transport sertifikaları (PEM) oluşturuluyor..."
 
-# HTTP TLS (zip çıkartır; içinde http.p12 ve http_ca.crt olur)
-# --silent/--batch: soru sormadan üretir; --multiple: hem ca hem server p12
-/usr/share/elasticsearch/bin/elasticsearch-certutil http \
-  --silent --batch --pem --ca-dn "CN=Elastic-HTTP-CA" --name "http" -out /etc/elasticsearch/http-certs.zip
+# 7.1) CA (PKCS12)
+CA_P12="/etc/elasticsearch/certs/elastic-stack-ca.p12"
+/usr/share/elasticsearch/bin/elasticsearch-certutil ca \
+  --silent \
+  --out "${CA_P12}" \
+  --pass ""
 
-unzip -o /etc/elasticsearch/http-certs.zip -d /etc/elasticsearch/certs >/dev/null 2>&1 || true
+# 7.2) CA'yı PEM'e dönüştür (ca.crt)
+openssl pkcs12 -in "${CA_P12}" -nokeys -passin pass: -out /etc/elasticsearch/certs/ca.crt >/dev/null 2>&1
 
-# Bazı sürümlerde p12 doğrudan üretmek için:
-if [[ ! -f /etc/elasticsearch/certs/http.p12 ]]; then
-  /usr/share/elasticsearch/bin/elasticsearch-certutil http \
-    --silent --batch -out /etc/elasticsearch/http.p12 -pass "" || true
-  mv -f /etc/elasticsearch/http.p12 /etc/elasticsearch/certs/http.p12 2>/dev/null || true
+# 7.3) HTTP sertifikası (PEM zip üret, unzip et)
+HTTP_ZIP="/etc/elasticsearch/certs/http.zip"
+/usr/share/elasticsearch/bin/elasticsearch-certutil cert \
+  --silent \
+  --ca "${CA_P12}" \
+  --ca-pass "" \
+  --name http \
+  --dns localhost \
+  --ip 127.0.0.1 \
+  --pem \
+  --out "${HTTP_ZIP}"
+
+unzip -o "${HTTP_ZIP}" -d /etc/elasticsearch/certs >/dev/null
+# Çıkan dizin genelde 'http/' olur:
+if [[ -f /etc/elasticsearch/certs/http/http.crt && -f /etc/elasticsearch/certs/http/http.key ]]; then
+  mv -f /etc/elasticsearch/certs/http/http.crt /etc/elasticsearch/certs/http.crt
+  mv -f /etc/elasticsearch/certs/http/http.key /etc/elasticsearch/certs/http.key
+  rm -rf /etc/elasticsearch/certs/http
 fi
 
-# Transport TLS
+# 7.4) Transport (node) sertifikası (PEM)
+TRANS_ZIP="/etc/elasticsearch/certs/transport.zip"
 /usr/share/elasticsearch/bin/elasticsearch-certutil cert \
-  --silent --out /etc/elasticsearch/certs/transport.p12 --pass ""
+  --silent \
+  --ca "${CA_P12}" \
+  --ca-pass "" \
+  --name transport \
+  --dns localhost \
+  --ip 127.0.0.1 \
+  --pem \
+  --out "${TRANS_ZIP}"
 
-# Sahiplik/izinler
+unzip -o "${TRANS_ZIP}" -d /etc/elasticsearch/certs >/dev/null
+# Çıkan dosyalar genelde 'transport/transport.crt|key' ya da 'transport/transport-*.crt' olur:
+if [[ -f /etc/elasticsearch/certs/transport/transport.crt && -f /etc/elasticsearch/certs/transport/transport.key ]]; then
+  mv -f /etc/elasticsearch/certs/transport/transport.crt /etc/elasticsearch/certs/transport.crt
+  mv -f /etc/elasticsearch/certs/transport/transport.key /etc/elasticsearch/certs/transport.key
+else
+  # Tek dosya ismi farklıysa ilk .crt ve .key'i al
+  crt="$(ls /etc/elasticsearch/certs/transport/*.crt | head -n1 || true)"
+  key="$(ls /etc/elasticsearch/certs/transport/*.key | head -n1 || true)"
+  [[ -n "${crt}" && -n "${key}" ]] && mv -f "${crt}" /etc/elasticsearch/certs/transport.crt && mv -f "${key}" /etc/elasticsearch/certs/transport.key
+fi
+rm -rf /etc/elasticsearch/certs/transport
+
+# Sahiplik/izin
 chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs
 chmod 0640 /etc/elasticsearch/certs/* || true
-
-popd >/dev/null
 
 # -------- 8) Elasticsearch’i başlat ve bekle --------
 log "Elasticsearch servisi etkinleştiriliyor ve başlatılıyor..."
@@ -152,7 +185,6 @@ systemctl restart logstash.service
 
 # -------- 11) Kibana Enrollment Token --------
 log "Kibana Enrollment Token alınıyor..."
-# ES'a hazır erişim old. için hemen üretilebilir
 KIBANA_TOKEN="$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana || true)"
 if [[ -z "${KIBANA_TOKEN}" ]]; then
   sleep 5

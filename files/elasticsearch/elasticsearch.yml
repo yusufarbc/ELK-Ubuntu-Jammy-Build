@@ -1,4 +1,4 @@
-# --- Elasticsearch minimal, tek düğüm, TLS etkin ---
+# --- Elasticsearch minimal, tek düğüm, TLS (PEM) etkin ---
 
 path.data: /var/lib/elasticsearch
 path.logs: /var/log/elasticsearch
@@ -6,21 +6,24 @@ path.logs: /var/log/elasticsearch
 network.host: 0.0.0.0
 http.host: 0.0.0.0
 
-# Tek düğüm
+# Tek düğüm mod
 discovery.type: single-node
 
 # Güvenlik + Enrollment
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
 
-# HTTP TLS (Kibana, Logstash, API istemcileri)
+# HTTP TLS (Kibana/Logstash/İstemciler)
 xpack.security.http.ssl:
   enabled: true
-  keystore.path: certs/http.p12
+  certificate: certs/http.crt
+  key: certs/http.key
+  certificate_authorities: [ "certs/ca.crt" ]
 
-# Node-to-node TLS
+# Node-to-node TLS (transport)
 xpack.security.transport.ssl:
   enabled: true
   verification_mode: certificate
-  keystore.path: certs/transport.p12
-  truststore.path: certs/transport.p12
+  certificate: certs/transport.crt
+  key: certs/transport.key
+  certificate_authorities: [ "certs/ca.crt" ]
