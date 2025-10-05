@@ -3,7 +3,7 @@
 # =============================================================================
 server.host: "0.0.0.0"
 elasticsearch.hosts: ["https://localhost:9200"]
-elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/ca.crt"]
+elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]
 
 # Not: İlk açılışta UI enrollment token isteyecek. Token'ı
 # betik sonunda ekranda göreceksiniz.
