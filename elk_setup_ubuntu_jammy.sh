@@ -137,7 +137,8 @@ EOF
 
 generate_certs(){
   step "6/10 TLS sertifikaları (CA+HTTP+Transport) — SAN=localhost/127.0.0.1/::1"
-  # CA
+
+  # --- CA üret ---
   if [[ ! -f "${ES_CA_CRT}" || ! -f "${ES_CA_KEY}" ]]; then
     "${ES_BIN}/elasticsearch-certutil" ca --silent --pem --out "${ES_CERT_DIR}/ca.zip"
     unzip -o "${ES_CERT_DIR}/ca.zip" -d "${ES_CERT_DIR}/ca" >/dev/null
@@ -150,7 +151,7 @@ generate_certs(){
     chown root:elasticsearch "${ES_CA_CRT}" "${ES_CA_KEY}"
   fi
 
-  # instances.yml
+  # --- instances.yml (yalnız localhost) ---
   cat > "${ES_CERT_DIR}/instances_http.yml" <<'YAML'
 instances:
   - name: es-http
@@ -164,7 +165,7 @@ instances:
     ip: ["127.0.0.1", "::1"]
 YAML
 
-  # HTTP
+  # --- HTTP sertifikası ---
   if [[ ! -f "${ES_HTTP_CRT}" || ! -f "${ES_HTTP_KEY}" ]]; then
     "${ES_BIN}/elasticsearch-certutil" cert --silent --pem \
       --in "${ES_CERT_DIR}/instances_http.yml" \
@@ -179,7 +180,7 @@ YAML
     chown root:elasticsearch "${ES_HTTP_CRT}" "${ES_HTTP_KEY}"
   fi
 
-  # Transport
+  # --- Transport sertifikası ---
   if [[ ! -f "${ES_TRANS_CRT}" || ! -f "${ES_TRANS_KEY}" ]]; then
     "${ES_BIN}/elasticsearch-certutil" cert --silent --pem \
       --in "${ES_CERT_DIR}/instances_transport.yml" \
@@ -194,38 +195,38 @@ YAML
     chown root:elasticsearch "${ES_TRANS_CRT}" "${ES_TRANS_KEY}"
   fi
 
-  # Logstash için CA kopyası
+  # --- Logstash için CA kopyası ---
   cp -f "${ES_CA_CRT}" "${LOGSTASH_ES_CA}"
   chmod 0644 "${LOGSTASH_ES_CA}"
 
-  # *** Kibana için CA kopyası (dünya okunabilir bir konum) ***
+  # --- Kibana için CA kopyası (izin duvarına takılmasın) ---
   install -d -m 0755 /etc/kibana/certs
   cp -f "${ES_CA_CRT}" /etc/kibana/certs/ca.crt
   chmod 0644 /etc/kibana/certs/ca.crt
   chown root:root /etc/kibana/certs/ca.crt
 }
 
-
 deploy_configs(){
   step "7/10 Konfigürasyon dosyaları"
-  # ES
+
+  # --- Elasticsearch ---
   install -d -m 0750 "${ES_CONF_DIR}"
   cp -f "${FILES_DIR}/elasticsearch/elasticsearch.yml" "${ES_CONF_DIR}/elasticsearch.yml"
   chown root:elasticsearch "${ES_CONF_DIR}/elasticsearch.yml"
   chmod 0640 "${ES_CONF_DIR}/elasticsearch.yml"
 
-  # Kibana
+  # --- Kibana ---
   install -d -m 0755 /etc/kibana
   cp -f "${FILES_DIR}/kibana/kibana.yml" "/etc/kibana/kibana.yml"
   chmod 0644 "/etc/kibana/kibana.yml"
-  # *** Kibana CA yolu mutlaka /etc/kibana/certs/ca.crt olsun ***
+  # CA yolu sabitle
   if grep -q '^elasticsearch\.ssl\.certificateAuthorities:' /etc/kibana/kibana.yml; then
     sed -i 's|^elasticsearch\.ssl\.certificateAuthorities:.*|elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]|' /etc/kibana/kibana.yml
   else
     printf '\nelasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]\n' >> /etc/kibana/kibana.yml
   fi
 
-  # Logstash pipelines
+  # --- Logstash pipelines ---
   install -d -m 0755 /etc/logstash/conf.d
   cp -f "${FILES_DIR}/logstash/fortigate.conf"     "/etc/logstash/conf.d/fortigate.conf"
   cp -f "${FILES_DIR}/logstash/windows_wef.conf"   "/etc/logstash/conf.d/windows_wef.conf"
@@ -233,6 +234,7 @@ deploy_configs(){
   cp -f "${FILES_DIR}/logstash/kaspersky.conf"     "/etc/logstash/conf.d/kaspersky.conf"
   chmod 0644 /etc/logstash/conf.d/*.conf
 }
+
 
 
 start_and_wait_es(){
@@ -253,8 +255,7 @@ start_and_wait_es(){
 
 secure_identities(){
   step "9/10 elastic parolasını batch reset"
-  local RAW=""
-  RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null || true)"
+  local RAW=""; RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null || true)"
   if [[ -z "${RAW}" ]]; then
     sleep 5
     RAW="$("${ES_BIN}/elasticsearch-reset-password" -u elastic -s -b 2>/dev/null || true)"
@@ -263,9 +264,8 @@ secure_identities(){
   [[ -z "${ELASTIC_PW}" ]] && { err "elastic parolası alınamadı."; exit 1; }
 
   step "9/10 Logstash rol/kullanıcı ve keystore"
-  local LS_PW; LS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
 
-  # ---- Rol ----
+  # --- Logstash writer rolü ---
   curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
     -H 'Content-Type: application/json' -X PUT \
     https://localhost:9200/_security/role/logstash_writer \
@@ -277,45 +277,58 @@ secure_identities(){
       }]
     }' >/dev/null || warn "rol (logstash_writer) zaten var olabilir."
 
-  # ---- Kullanıcı ----
-  curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
-    -H 'Content-Type: application/json' -X POST \
-    https://localhost:9200/_security/user/logstash_ingest \
-    -d "{\"password\":\"${LS_PW}\",\"roles\":[\"logstash_writer\"]}" >/dev/null || \
-    warn "kullanıcı (logstash_ingest) zaten var olabilir."
-
-  # Keystore master parolasını üret ve kalıcılaştır
-  local KS_PW ENV_FILE
-  KS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
-  ENV_FILE="/etc/default/logstash"
-  [[ -d /etc/sysconfig ]] && [[ ! -f "${ENV_FILE}" ]] && ENV_FILE="/etc/sysconfig/logstash"
-
-  touch "${ENV_FILE}"
-  chmod 0600 "${ENV_FILE}"
-  chown root:root "${ENV_FILE}"
-
-  # Eğer daha önce tanımlıysa ezme; yoksa ekle
-  if grep -q '^LOGSTASH_KEYSTORE_PASS=' "${ENV_FILE}"; then
-    # var olanı içe al, yoksa yeni KS_PW'i export et
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-    export LOGSTASH_KEYSTORE_PASS="${LOGSTASH_KEYSTORE_PASS:-${KS_PW}}"
-  else
-    printf 'LOGSTASH_KEYSTORE_PASS="%s"\n' "${KS_PW}" >> "${ENV_FILE}"
-    export LOGSTASH_KEYSTORE_PASS="${KS_PW}"
+  # --- logstash_ingest kullanıcı (önce POST; başarısızsa PUT ile güncelle) ---
+  local LS_PW; LS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
+  if ! curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
+        -H 'Content-Type: application/json' -X POST \
+        https://localhost:9200/_security/user/logstash_ingest \
+        -d "{\"password\":\"${LS_PW}\",\"roles\":[\"logstash_writer\"]}" >/dev/null; then
+    curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
+      -H 'Content-Type: application/json' -X PUT \
+      https://localhost:9200/_security/user/logstash_ingest \
+      -d "{\"password\":\"${LS_PW}\",\"roles\":[\"logstash_writer\"]}" >/dev/null || \
+      warn "kullanıcı (logstash_ingest) oluşturulamadı/güncellenemedi."
   fi
 
-  # Keystore'u parola ile, etkileşimsiz oluştur
-  /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash create >/dev/null 2>&1 || true
-  # Keystore izinleri
-  chown logstash:root /etc/logstash/logstash.keystore 2>/dev/null || true
-  chmod 0600 /etc/logstash/logstash.keystore 2>/dev/null || true
+  # --- Logstash log dizini (log4j RollingFile hatalarını kes) ---
+  install -d -m 0755 /var/log/logstash
+  chown -R logstash:logstash /var/log/logstash || true
 
-  # ES_PW değerini keystore'a, etkileşimsiz biçimde ekle
+  # --- Keystore: tek parola kaynağı (/etc/default/logstash), non-interactive ---
+  local ENV_FILE="/etc/default/logstash"
+  [[ -f /etc/sysconfig/logstash && ! -f "${ENV_FILE}" ]] && ENV_FILE="/etc/sysconfig/logstash"
+  touch "${ENV_FILE}"; chmod 0600 "${ENV_FILE}"; chown root:root "${ENV_FILE}"
+
+  local KS_PW
+  if grep -q '^LOGSTASH_KEYSTORE_PASS=' "${ENV_FILE}"; then
+    # shellcheck disable=SC1090
+    . "${ENV_FILE}"
+    KS_PW="${LOGSTASH_KEYSTORE_PASS}"
+  else
+    KS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
+    printf 'LOGSTASH_KEYSTORE_PASS="%s"\n' "${KS_PW}" >> "${ENV_FILE}"
+  fi
+  export LOGSTASH_KEYSTORE_PASS="${KS_PW}"
+
+  # --- Keystore doğrula; açılamıyorsa yeniden oluştur ---
+  local NEED_RECREATE=0
+  if [[ -f /etc/logstash/logstash.keystore ]]; then
+    /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash list >/dev/null 2>&1 || NEED_RECREATE=1
+  else
+    NEED_RECREATE=1
+  fi
+  if [[ "${NEED_RECREATE}" -eq 1 ]]; then
+    rm -f /etc/logstash/logstash.keystore
+    /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash create >/dev/null
+  fi
+
+  # --- ES_PW sırrını ekle (üzerine yaz) ---
   printf '%s\n' "${LS_PW}" | /usr/share/logstash/bin/logstash-keystore --path.settings /etc/logstash add --force ES_PW >/dev/null
 
-  # Servisi yeniden başlat
-  systemctl restart "${LOGSTASH_SERVICE}" || { journalctl -u logstash -n 50 --no-pager || true; false; }
+  # --- Sahiplik/izinler ve restart ---
+  chown logstash:logstash /etc/logstash/logstash.keystore 2>/dev/null || true
+  chmod 0600 /etc/logstash/logstash.keystore 2>/dev/null || true
+  systemctl restart "${LOGSTASH_SERVICE}" || { journalctl -u logstash -n 100 --no-pager || true; false; }
 
   step "9/10 Kibana enrollment token"
   ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>/dev/null || true)"
