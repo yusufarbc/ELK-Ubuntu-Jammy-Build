@@ -1,0 +1,9 @@
+server.host: "0.0.0.0"
+xpack.security.enrollment.enabled: true
+
+# ES ve CA (ES ilk açılışta /etc/elasticsearch/certs/http_ca.crt üretir)
+elasticsearch.hosts: ["https://localhost:9200"]
+elasticsearch.ssl.certificateAuthorities: [ "/etc/elasticsearch/certs/http_ca.crt" ]
+
+# 5601’i doğrudan kullanacağız (reverse proxy yok)
+# server.ssl.enabled: false

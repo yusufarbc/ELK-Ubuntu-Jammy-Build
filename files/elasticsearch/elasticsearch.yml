@@ -1,0 +1,16 @@
+# Minimal, tekil ve güvenli Elasticsearch yapılandırması
+
+# Veri ve log yolları (systemd drop-in ile de ES_LOG_DIR veriyoruz)
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+
+# Ağ
+network.host: 0.0.0.0
+http.host: 0.0.0.0
+
+# Tek düğüm modu (cluster.initial_master_nodes eklemiyoruz!)
+discovery.type: single-node
+
+# Güvenlik (ES 9.x defaults ile uyumlu)
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: true
