@@ -28,8 +28,6 @@ ES_HTTP_P12="${ES_CERT_DIR}/http.p12"
 ES_TRANS_CRT="${ES_CERT_DIR}/transport.crt"
 ES_TRANS_KEY="${ES_CERT_DIR}/transport.key"
 
-LOGSTASH_ES_CA="/etc/logstash/certs/ca.crt"
-
 # Durum/özet
 ELASTIC_PW=""
 ENROLL_TOKEN=""
@@ -212,8 +210,8 @@ YAML
   fi
 
   # Logstash ve Kibana için CA kopyaları
-  cp -f "${ES_CA_CRT}" "${LOGSTASH_ES_CA}"
-  chmod 0644 "${LOGSTASH_ES_CA}"
+  cp -f "${ES_CA_CRT}" /etc/logstash/certs/ca.crt
+  chmod 0644 /etc/logstash/certs/ca.crt
   cp -f "${ES_CA_CRT}" /etc/kibana/certs/ca.crt
   chmod 0644 /etc/kibana/certs/ca.crt
 }
@@ -487,7 +485,6 @@ Syslog (RFC3164)      : 5514/tcp+udp
 Syslog (RFC5424)      : 5515/tcp
 Kaspersky             : 5516/tcp+udp
 Data Streams/Index    : logs-<dataset>-default (ILM: logs-30d)
-CA (LS için)          : ${LOGSTASH_ES_CA}
 Enrollment token      : ${ENROLL_TOKEN}
 ========================================================
 [+] Kurulum tamamlandı.
