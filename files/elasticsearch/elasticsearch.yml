@@ -13,13 +13,11 @@ discovery.type: single-node
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
 
-# HTTP (REST) TLS
+# HTTP (REST) TLS — enrollment token için PKCS#12 keystore şart
 xpack.security.http.ssl:
   enabled: true
-  certificate: /etc/elasticsearch/certs/http.crt
-  key: /etc/elasticsearch/certs/http.key
-  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
-  verification_mode: certificate
+  keystore.path: /etc/elasticsearch/certs/http.p12
+  # keystore.password: ""   # P12 şifresiz oluşturulduysa BU SATIRI EKLEME!
 
 # Transport TLS (node-2node; tek hostta da açık tut)
 xpack.security.transport.ssl:
