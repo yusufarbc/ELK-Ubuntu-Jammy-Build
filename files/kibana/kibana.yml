@@ -4,7 +4,7 @@ server.host: "0.0.0.0"
 
 # Elasticsearch bağlantısı
 elasticsearch.hosts: ["https://localhost:9200"]
-elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/ca.crt"]
+elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]
 elasticsearch.ssl.verificationMode: certificate
 
 # Enrollment kullanacaksan betik zaten token üretip kibana-setup dener.

@@ -224,15 +224,19 @@ YAML
 deploy_configs(){
   step "7/10 Konfigürasyon dosyaları"
 
-  # Elasticsearch
+  # --- Kaynak dosyalar var mı? (repo bütünlüğü) ---
+  [[ -f "${FILES_DIR}/elasticsearch/elasticsearch.yml" ]] || die "Eksik: files/elasticsearch/elasticsearch.yml"
+  [[ -f "${FILES_DIR}/kibana/kibana.yml"        ]] || die "Eksik: files/kibana/kibana.yml"
+
+  # --- Elasticsearch ---
   install -d -m 0750 "${ES_CONF_DIR}"
-  cp -f "${FILES_DIR}/elasticsearch/elasticsearch.yml" "${ES_CONF_DIR}/elasticsearch.yml"
-  chown root:elasticsearch "${ES_CONF_DIR}/elasticsearch.yml"
-  chmod 0640 "${ES_CONF_DIR}/elasticsearch.yml"
+  install -m 0640 -o root -g elasticsearch \
+    "${FILES_DIR}/elasticsearch/elasticsearch.yml" \
+    "${ES_CONF_DIR}/elasticsearch.yml"
 
   # ES yalnız localhost
   sed -i '/^network\.host:/d' "${ES_CONF_DIR}/elasticsearch.yml"
-  sed -i '/^http\.host:/d' "${ES_CONF_DIR}/elasticsearch.yml"
+  sed -i '/^http\.host:/d'    "${ES_CONF_DIR}/elasticsearch.yml"
   printf 'network.host: 127.0.0.1\nhttp.host: 127.0.0.1\n' >> "${ES_CONF_DIR}/elasticsearch.yml"
 
   # HTTP TLS: PEM satırlarını kaldır, keystore.path ekle/güncelle
@@ -250,23 +254,31 @@ deploy_configs(){
     && sed -i 's|^xpack\.security\.http\.ssl\.client_authentication:.*|xpack.security.http.ssl.client_authentication: optional|' "${ES_CONF_DIR}/elasticsearch.yml" \
     || echo 'xpack.security.http.ssl.client_authentication: optional' >> "${ES_CONF_DIR}/elasticsearch.yml"
 
+  # Keystore (P12) yolu (6/10'da oluşturuldu varsayımı)
   if grep -q '^xpack\.security\.http\.ssl\.keystore\.path:' "${ES_CONF_DIR}/elasticsearch.yml"; then
     sed -i 's|^xpack\.security\.http\.ssl\.keystore\.path:.*|xpack.security.http.ssl.keystore.path: "'"${ES_HTTP_P12}"'"|' "${ES_CONF_DIR}/elasticsearch.yml"
   else
     printf 'xpack.security.http.ssl.keystore.path: "%s"\n' "${ES_HTTP_P12}" >> "${ES_CONF_DIR}/elasticsearch.yml"
   fi
 
-  # Kibana
+  # --- Kibana ---
   install -d -m 0755 /etc/kibana
-  cp -f "${FILES_DIR}/kibana/kibana.yml" "/etc/kibana/kibana.yml"
-  chmod 0644 "/etc/kibana/kibana.yml"
-  # CA yolu sabit
-  if grep -q '^elasticsearch\.ssl\.certificateAuthorities:' /etc/kibana/kibana.yml; then
-    sed -i 's|^elasticsearch\.ssl\.certificateAuthorities:.*|elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]|' /etc/kibana/kibana.yml
+  install -m 0644 \
+    "${FILES_DIR}/kibana/kibana.yml" \
+    /etc/kibana/kibana.yml
+
+  # Kibana CA yolu: /etc/kibana/certs/ca.crt kullanıyorsak dizini oluştur ve CA'yı kopyala
+  KBN_CA_IN_YML="$(awk -F': *' '/^elasticsearch\.ssl\.certificateAuthorities:/ {gsub(/\[|\]|"| /,"",$2); print $2}' /etc/kibana/kibana.yml || true)"
+  if echo "${KBN_CA_IN_YML}" | grep -q '^/etc/kibana/certs/ca.crt$'; then
+    install -d -m 0755 /etc/kibana/certs
+    [[ -f "${ES_CERT_DIR}/ca.crt" ]] || die "CA bulunamadı: ${ES_CERT_DIR}/ca.crt (6/10 adımını kontrol edin)"
+    install -m 0644 "${ES_CERT_DIR}/ca.crt" /etc/kibana/certs/ca.crt
   else
-    printf '\nelasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]\n' >> /etc/kibana/kibana.yml
+    # Eğer kibana.yml içinde ES CA yolu /etc/elasticsearch/certs/ca.crt ise ayrıca bir şey yapmaya gerek yok
+    :
   fi
-  # Kibana encryption keys (uyarıları sustur)
+
+  # Kibana encryption keys (uyarıları sustur) — repoda sır tutmamak için RANDOM yazıyoruz
   if ! grep -q '^xpack\.security\.encryptionKey:' /etc/kibana/kibana.yml; then
     EK1="$(openssl rand -hex 32)"; EK2="$(openssl rand -hex 32)"; EK3="$(openssl rand -hex 32)"
     {
@@ -276,28 +288,42 @@ deploy_configs(){
     } >> /etc/kibana/kibana.yml
   fi
 
-  # Logstash pipelines
+  # --- Logstash pipelines ---
   install -d -m 0755 /etc/logstash/conf.d
-  cp -f "${FILES_DIR}/logstash/fortigate.conf"     "/etc/logstash/conf.d/fortigate.conf"
-  cp -f "${FILES_DIR}/logstash/windows_wef.conf"   "/etc/logstash/conf.d/windows_wef.conf"
-  cp -f "${FILES_DIR}/logstash/syslog.conf"        "/etc/logstash/conf.d/syslog.conf"
-  cp -f "${FILES_DIR}/logstash/kaspersky.conf"     "/etc/logstash/conf.d/kaspersky.conf"
-  chmod 0644 /etc/logstash/conf.d/*.conf
+
+  # Tek tek kopyala; yoksa uyar ve atla (set -e ile düşmesin)
+  for src in fortigate.conf windows_wef.conf syslog.conf kaspersky.conf; do
+    if [[ -f "${FILES_DIR}/logstash/${src}" ]]; then
+      install -m 0644 "${FILES_DIR}/logstash/${src}" "/etc/logstash/conf.d/${src}"
+    else
+      echo "[!] Uyarı: ${FILES_DIR}/logstash/${src} bulunamadı, atlanıyor."
+    fi
+  done
 
   # WEF translate sözlüğü
   install -d -m 0755 /etc/logstash/translate
-  cp -f "${FILES_DIR}/logstash/translate/windows_event_codes.yml" /etc/logstash/translate/windows_event_codes.yml
-  chmod 0644 /etc/logstash/translate/windows_event_codes.yml
+  if [[ -f "${FILES_DIR}/logstash/translate/windows_event_codes.yml" ]]; then
+    install -m 0644 "${FILES_DIR}/logstash/translate/windows_event_codes.yml" /etc/logstash/translate/windows_event_codes.yml
+  else
+    echo "[!] Uyarı: windows_event_codes.yml bulunamadı, boş bir sözlük oluşturuldu."
+    printf -- "---\n" > /etc/logstash/translate/windows_event_codes.yml
+    chmod 0644 /etc/logstash/translate/windows_event_codes.yml
+  fi
 
-  # Kibana encryption keys (env) — repoda sır tutmamak için
+  # Logstash log dizini (log4j uyarılarını susturur)
+  install -d -m 0755 -o logstash -g logstash /var/log/logstash
+
+  # Kibana encryption keys (ENV) — istersen ENV ile yönet (opsiyonel)
   if ! grep -q 'KBN_SECURITY_KEY' /etc/default/kibana 2>/dev/null; then
-    read -r K1 K2 K3 < <(/usr/share/kibana/bin/kibana-encryption-keys generate -q | awk -F': ' '/security/{print $2} /encryptedSavedObjects/{print $2} /reporting/{print $2}')
-    {
-      echo "KBN_SECURITY_KEY=${K1}"
-      echo "KBN_SAVEDOBJ_KEY=${K2}"
-      echo "KBN_REPORTING_KEY=${K3}"
-    } | sudo tee -a /etc/default/kibana >/dev/null
-    sudo systemctl restart kibana
+    if [[ -x /usr/share/kibana/bin/kibana-encryption-keys ]]; then
+      read -r K1 K2 K3 < <(/usr/share/kibana/bin/kibana-encryption-keys generate -q | awk -F': ' '/security/{print $2} /encryptedSavedObjects/{print $2} /reporting/{print $2}')
+      {
+        echo "KBN_SECURITY_KEY=${K1}"
+        echo "KBN_SAVEDOBJ_KEY=${K2}"
+        echo "KBN_REPORTING_KEY=${K3}"
+      } >> /etc/default/kibana
+      systemctl restart kibana || true
+    fi
   fi
 }
 
