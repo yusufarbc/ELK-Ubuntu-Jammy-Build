@@ -413,6 +413,8 @@ secure_identities(){
     done
     ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>&1 || true)"
   fi
+  sudo /usr/share/kibana/bin/kibana-setup --enrollment-token "${ENROLL_TOKEN}"
+  sudo systemctl restart kibana
 }
 
 ########################
