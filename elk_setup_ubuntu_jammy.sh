@@ -165,7 +165,7 @@ instances:
     ip: ["127.0.0.1", "::1"]
 YAML
 
-  # --- HTTP sertifikası ---
+  # --- HTTP sertifikası (PEM) ---
   if [[ ! -f "${ES_HTTP_CRT}" || ! -f "${ES_HTTP_KEY}" ]]; then
     "${ES_BIN}/elasticsearch-certutil" cert --silent --pem \
       --in "${ES_CERT_DIR}/instances_http.yml" \
@@ -180,7 +180,7 @@ YAML
     chown root:elasticsearch "${ES_HTTP_CRT}" "${ES_HTTP_KEY}"
   fi
 
-  # --- Transport sertifikası ---
+  # --- Transport sertifikası (PEM) ---
   if [[ ! -f "${ES_TRANS_CRT}" || ! -f "${ES_TRANS_KEY}" ]]; then
     "${ES_BIN}/elasticsearch-certutil" cert --silent --pem \
       --in "${ES_CERT_DIR}/instances_transport.yml" \
@@ -204,7 +204,21 @@ YAML
   cp -f "${ES_CA_CRT}" /etc/kibana/certs/ca.crt
   chmod 0644 /etc/kibana/certs/ca.crt
   chown root:root /etc/kibana/certs/ca.crt
+
+  # --- HTTP için PKCS#12 keystore (enrollment token aracı bunu ister) ---
+  if [[ ! -f "${ES_CERT_DIR}/http.p12" ]]; then
+    openssl pkcs12 -export \
+      -inkey "${ES_HTTP_KEY}" \
+      -in "${ES_HTTP_CRT}" \
+      -certfile "${ES_CA_CRT}" \
+      -name es-http \
+      -out "${ES_CERT_DIR}/http.p12" \
+      -passout pass:
+    chown root:elasticsearch "${ES_CERT_DIR}/http.p12"
+    chmod 0640 "${ES_CERT_DIR}/http.p12"
+  fi
 }
+
 
 deploy_configs(){
   step "7/10 Konfigürasyon dosyaları"
@@ -214,6 +228,17 @@ deploy_configs(){
   cp -f "${FILES_DIR}/elasticsearch/elasticsearch.yml" "${ES_CONF_DIR}/elasticsearch.yml"
   chown root:elasticsearch "${ES_CONF_DIR}/elasticsearch.yml"
   chmod 0640 "${ES_CONF_DIR}/elasticsearch.yml"
+
+  # HTTP TLS: PEM satırlarını kaldır, keystore.path ekle/güncelle
+  sed -i '/^xpack\.security\.http\.ssl\.certificate:/d'             "${ES_CONF_DIR}/elasticsearch.yml"
+  sed -i '/^xpack\.security\.http\.ssl\.key:/d'                     "${ES_CONF_DIR}/elasticsearch.yml"
+  sed -i '/^xpack\.security\.http\.ssl\.certificate_authorities:/d' "${ES_CONF_DIR}/elasticsearch.yml"
+  if grep -q '^xpack\.security\.http\.ssl\.keystore\.path:' "${ES_CONF_DIR}/elasticsearch.yml"; then
+    sed -i 's|^xpack\.security\.http\.ssl\.keystore\.path:.*|xpack.security.http.ssl.keystore.path: "'"${ES_CERT_DIR}/http.p12"'"|' "${ES_CONF_DIR}/elasticsearch.yml"
+  else
+    printf '\nxpack.security.http.ssl.keystore.path: "%s"\n' "${ES_CERT_DIR}/http.p12" >> "${ES_CONF_DIR}/elasticsearch.yml"
+  fi
+  # (parolasız oluşturuldu; password satırı eklemiyoruz)
 
   # --- Kibana ---
   install -d -m 0755 /etc/kibana
@@ -277,7 +302,7 @@ secure_identities(){
       }]
     }' >/dev/null || warn "rol (logstash_writer) zaten var olabilir."
 
-  # --- logstash_ingest kullanıcı (önce POST; başarısızsa PUT ile güncelle) ---
+  # --- logstash_ingest kullanıcı (POST; gerekirse PUT ile güncelle) ---
   local LS_PW; LS_PW="$(openssl rand -base64 24 | tr -d '\n' | cut -c1-24)"
   if ! curl -s --fail --cacert "${ES_CA_CRT}" -u "elastic:${ELASTIC_PW}" \
         -H 'Content-Type: application/json' -X POST \
@@ -330,9 +355,18 @@ secure_identities(){
   chmod 0600 /etc/logstash/logstash.keystore 2>/dev/null || true
   systemctl restart "${LOGSTASH_SERVICE}" || { journalctl -u logstash -n 100 --no-pager || true; false; }
 
+  # --- Kibana enrollment token (keystore zorunluluğu sağlandı) ---
   step "9/10 Kibana enrollment token"
-  ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>/dev/null || true)"
-  [[ -z "${ENROLL_TOKEN}" ]] && { sleep 3; ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>/dev/null || true)"; }
+  ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>&1 | tee /tmp/kbn_token.out || true)"
+  if ! echo "${ENROLL_TOKEN}" | grep -Eq '^[A-Za-z0-9_\-]+=*\.[A-Za-z0-9_\-]+=*\.[A-Za-z0-9_\-]+=*$'; then
+    warn "Enrollment token ilk denemede alınamadı, ES restart ve tekrar denenecek..."
+    systemctl restart "${ES_SERVICE}"
+    for _ in {1..30}; do
+      curl -s --cacert "${ES_CA_CRT}" https://localhost:9200 >/dev/null 2>&1 && break
+      sleep 1
+    done
+    ENROLL_TOKEN="$("${ES_BIN}/elasticsearch-create-enrollment-token" -s kibana 2>&1 | tee -a /tmp/kbn_token.out || true)"
+  fi
 }
 
 setup_ilm_templates(){
