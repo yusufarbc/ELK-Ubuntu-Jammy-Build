@@ -76,7 +76,7 @@
 # TELİF / LİSANS
 #   - Bu script “as is” sağlanır; üretim ortamlarında uygulamadan önce test ediniz.
 #   - Elastic lisans ve Basic kısıtları geçerlidir; ayrıntılar için elastic.co lisanslarını inceleyin.
-# ==============================================================================
+# ============================================================================== 
 
 
 set -Eeuo pipefail
@@ -363,34 +363,18 @@ deploy_configs(){
   install -d -m 0755 /etc/logstash/translate
   cp -f "${FILES_DIR}/logstash/translate/windows_event_codes.yml" /etc/logstash/translate/windows_event_codes.yml
   chmod 0644 /etc/logstash/translate/windows_event_codes.yml
-}
 
-ensure_kibana_env_keys(){
-  step "Kibana encryption keys (env)"
-  local DEF="/etc/default/kibana"
-
-  # /etc/default/kibana varsa koru; yoksa oluştur
-  install -o root -g root -m 0644 /dev/null "$DEF" 2>/dev/null || true
-
-  # Anahtarlar yoksa üret ve ekle (repoda sır tutmuyoruz)
-  if ! grep -q '^KBN_SECURITY_KEY=' "$DEF" 2>/dev/null; then
-    if [[ -x /usr/share/kibana/bin/kibana-encryption-keys ]]; then
-      # 3 anahtarı tek seferde üret
-      read -r K1 K2 K3 < <(
-        /usr/share/kibana/bin/kibana-encryption-keys generate -q \
-        | awk -F': ' '/security/{print $2} /encryptedSavedObjects/{print $2} /reporting/{print $2}'
-      )
-      {
-        echo "KBN_SECURITY_KEY=${K1}"
-        echo "KBN_SAVEDOBJ_KEY=${K2}"
-        echo "KBN_REPORTING_KEY=${K3}"
-      } >> "$DEF"
-    else
-      warn "/usr/share/kibana/bin/kibana-encryption-keys bulunamadı; Kibana uyarıları devam edebilir."
-    fi
+  # Kibana encryption keys (env) — repoda sır tutmamak için
+  if ! grep -q 'KBN_SECURITY_KEY' /etc/default/kibana 2>/dev/null; then
+    read -r K1 K2 K3 < <(/usr/share/kibana/bin/kibana-encryption-keys generate -q | awk -F': ' '/security/{print $2} /encryptedSavedObjects/{print $2} /reporting/{print $2}')
+    {
+      echo "KBN_SECURITY_KEY=${K1}"
+      echo "KBN_SAVEDOBJ_KEY=${K2}"
+      echo "KBN_REPORTING_KEY=${K3}"
+    } | sudo tee -a /etc/default/kibana >/dev/null
+    sudo systemctl restart kibana
   fi
 }
-
 
 ########################
 # 8) Servisleri enable + start
@@ -576,7 +560,7 @@ print_summary(){
   cat <<EOF
 
 ==================== KURULUM ÖZETİ ====================
-Kibana URL            : http://:5601
+Kibana URL            : http://<Sunucu_IP_veya_FQDN>:5601
 Elasticsearch         : https://localhost:9200  (yalnız localhost)
 Elastic kullanıcı     : elastic
 Elastic parola        : ${ELASTIC_PW}
@@ -587,13 +571,14 @@ WEF (Winlogbeat→LS)   : 5045/tcp
 Syslog (RFC3164)      : 5514/tcp+udp
 Syslog (RFC5424)      : 5515/tcp
 Kaspersky             : 5516/tcp+udp
-Data Streams/Index    : logs-<dataset>-default (ILM: logs-90d)
+Data Streams/Index    : logs-<dataset>-default (ILM: logs-30d)
 CA (LS için)          : ${LOGSTASH_ES_CA}
 Enrollment token      : ${ENROLL_TOKEN}
 ========================================================
 [+] Kurulum tamamlandı.
 EOF
 }
+
 
 ########################
 # Çalıştır
@@ -607,7 +592,6 @@ prepare_dirs
 systemd_dropin
 generate_certs
 deploy_configs
-ensure_kibana_env_keys
 start_services
 secure_identities
 setup_ilm_template

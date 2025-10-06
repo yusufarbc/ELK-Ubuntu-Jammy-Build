@@ -1,4 +1,4 @@
-cluster.name: msb-elk
+luster.name: msb-elk
 node.name: node-1
 
 path.data: /var/lib/elasticsearch
