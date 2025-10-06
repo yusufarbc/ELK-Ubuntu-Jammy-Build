@@ -234,59 +234,12 @@ deploy_configs(){
     "${FILES_DIR}/elasticsearch/elasticsearch.yml" \
     "${ES_CONF_DIR}/elasticsearch.yml"
 
-  # ES yalnız localhost
-  sed -i '/^network\.host:/d' "${ES_CONF_DIR}/elasticsearch.yml"
-  sed -i '/^http\.host:/d'    "${ES_CONF_DIR}/elasticsearch.yml"
-  printf 'network.host: 127.0.0.1\nhttp.host: 127.0.0.1\n' >> "${ES_CONF_DIR}/elasticsearch.yml"
-
-  # HTTP TLS: PEM satırlarını kaldır, keystore.path ekle/güncelle
-  sed -i '/^xpack\.security\.http\.ssl\.certificate:/d'             "${ES_CONF_DIR}/elasticsearch.yml"
-  sed -i '/^xpack\.security\.http\.ssl\.key:/d'                     "${ES_CONF_DIR}/elasticsearch.yml"
-  sed -i '/^xpack\.security\.http\.ssl\.certificate_authorities:/d' "${ES_CONF_DIR}/elasticsearch.yml"
-  sed -i '/^xpack\.security\.http\.ssl\.truststore\.path:/d'        "${ES_CONF_DIR}/elasticsearch.yml"
-  sed -i '/^xpack\.security\.http\.ssl\.truststore\.password:/d'    "${ES_CONF_DIR}/elasticsearch.yml"
-
-  grep -q '^xpack\.security\.http\.ssl\.enabled:' "${ES_CONF_DIR}/elasticsearch.yml" \
-    && sed -i 's|^xpack\.security\.http\.ssl\.enabled:.*|xpack.security.http.ssl.enabled: true|' "${ES_CONF_DIR}/elasticsearch.yml" \
-    || echo 'xpack.security.http.ssl.enabled: true' >> "${ES_CONF_DIR}/elasticsearch.yml"
-
-  grep -q '^xpack\.security\.http\.ssl\.client_authentication:' "${ES_CONF_DIR}/elasticsearch.yml" \
-    && sed -i 's|^xpack\.security\.http\.ssl\.client_authentication:.*|xpack.security.http.ssl.client_authentication: optional|' "${ES_CONF_DIR}/elasticsearch.yml" \
-    || echo 'xpack.security.http.ssl.client_authentication: optional' >> "${ES_CONF_DIR}/elasticsearch.yml"
-
-  # Keystore (P12) yolu (6/10'da oluşturuldu varsayımı)
-  if grep -q '^xpack\.security\.http\.ssl\.keystore\.path:' "${ES_CONF_DIR}/elasticsearch.yml"; then
-    sed -i 's|^xpack\.security\.http\.ssl\.keystore\.path:.*|xpack.security.http.ssl.keystore.path: "'"${ES_HTTP_P12}"'"|' "${ES_CONF_DIR}/elasticsearch.yml"
-  else
-    printf 'xpack.security.http.ssl.keystore.path: "%s"\n' "${ES_HTTP_P12}" >> "${ES_CONF_DIR}/elasticsearch.yml"
-  fi
 
   # --- Kibana ---
   install -d -m 0755 /etc/kibana
   install -m 0644 \
     "${FILES_DIR}/kibana/kibana.yml" \
     /etc/kibana/kibana.yml
-
-  # Kibana CA yolu: /etc/kibana/certs/ca.crt kullanıyorsak dizini oluştur ve CA'yı kopyala
-  KBN_CA_IN_YML="$(awk -F': *' '/^elasticsearch\.ssl\.certificateAuthorities:/ {gsub(/\[|\]|"| /,"",$2); print $2}' /etc/kibana/kibana.yml || true)"
-  if echo "${KBN_CA_IN_YML}" | grep -q '^/etc/kibana/certs/ca.crt$'; then
-    install -d -m 0755 /etc/kibana/certs
-    [[ -f "${ES_CERT_DIR}/ca.crt" ]] || die "CA bulunamadı: ${ES_CERT_DIR}/ca.crt (6/10 adımını kontrol edin)"
-    install -m 0644 "${ES_CERT_DIR}/ca.crt" /etc/kibana/certs/ca.crt
-  else
-    # Eğer kibana.yml içinde ES CA yolu /etc/elasticsearch/certs/ca.crt ise ayrıca bir şey yapmaya gerek yok
-    :
-  fi
-
-  # # Kibana encryption keys (uyarıları sustur) — repoda sır tutmamak için RANDOM yazıyoruz
-  # if ! grep -q '^xpack\.security\.encryptionKey:' /etc/kibana/kibana.yml; then
-  #   EK1="$(openssl rand -hex 32)"; EK2="$(openssl rand -hex 32)"; EK3="$(openssl rand -hex 32)"
-  #   {
-  #     echo "xpack.security.encryptionKey: \"${EK1}\""
-  #     echo "xpack.encryptedSavedObjects.encryptionKey: \"${EK2}\""
-  #     echo "xpack.reporting.encryptionKey: \"${EK3}\""
-  #   } >> /etc/kibana/kibana.yml
-  # fi
 
   # --- Logstash pipelines ---
   install -d -m 0755 /etc/logstash/conf.d
@@ -313,18 +266,28 @@ deploy_configs(){
   # Logstash log dizini (log4j uyarılarını susturur)
   install -d -m 0755 -o logstash -g logstash /var/log/logstash
 
-  # Kibana encryption keys (ENV) — istersen ENV ile yönet (opsiyonel)
-  if ! grep -q 'KBN_SECURITY_KEY' /etc/default/kibana 2>/dev/null; then
-    if [[ -x /usr/share/kibana/bin/kibana-encryption-keys ]]; then
-      read -r K1 K2 K3 < <(/usr/share/kibana/bin/kibana-encryption-keys generate -q | awk -F': ' '/security/{print $2} /encryptedSavedObjects/{print $2} /reporting/{print $2}')
-      {
-        echo "KBN_SECURITY_KEY=${K1}"
-        echo "KBN_SAVEDOBJ_KEY=${K2}"
-        echo "KBN_REPORTING_KEY=${K3}"
-      } >> /etc/default/kibana
-      systemctl restart kibana || true
-    fi
-  fi
+  # kibana env keys
+  # 1) Anahtarları üret
+  KGEN=$(/usr/share/kibana/bin/kibana-encryption-keys generate -q --force)
+
+  # 2) Değerleri çek (çıktıdaki tırnakları da temizliyoruz)
+  SEC=$(printf '%s\n' "$KGEN" | awk -F': ' '/^xpack\.security\.encryptionKey/{print $2}')
+  SAV=$(printf '%s\n' "$KGEN" | awk -F': ' '/^xpack\.encryptedSavedObjects\.encryptionKey/{print $2}')
+  REP=$(printf '%s\n' "$KGEN" | awk -F': ' '/^xpack\.reporting\.encryptionKey/{print $2}')
+  SEC="${SEC%\"}"; SEC="${SEC#\"}"
+  SAV="${SAV%\"}"; SAV="${SAV#\"}"
+  REP="${REP%\"}"; REP="${REP#\"}"
+
+  # 3) /etc/default/kibana içine ekle (her satır ayrı; heredoc yok → syntax sorunu yok)
+  printf 'KBN_SECURITY_KEY=%s\n' "$SEC" | sudo tee -a /etc/default/kibana >/dev/null
+  printf 'KBN_SAVEDOBJ_KEY=%s\n' "$SAV" | sudo tee -a /etc/default/kibana >/dev/null
+  printf 'KBN_REPORTING_KEY=%s\n' "$REP" | sudo tee -a /etc/default/kibana >/dev/null
+
+  # 4) Servisi yeniden başlat ve kontrol et
+  sudo systemctl restart kibana
+  grep -E 'KBN_.*KEY' /etc/default/kibana
+  journalctl -u kibana -n 50 --no-pager
+  
 }
 
 ########################
