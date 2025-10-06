@@ -288,6 +288,17 @@ deploy_configs(){
   install -d -m 0755 /etc/logstash/translate
   cp -f "${FILES_DIR}/logstash/translate/windows_event_codes.yml" /etc/logstash/translate/windows_event_codes.yml
   chmod 0644 /etc/logstash/translate/windows_event_codes.yml
+
+  # Kibana encryption keys (env) — repoda sır tutmamak için
+  if ! grep -q 'KBN_SECURITY_KEY' /etc/default/kibana 2>/dev/null; then
+    read -r K1 K2 K3 < <(/usr/share/kibana/bin/kibana-encryption-keys generate -q | awk -F': ' '/security/{print $2} /encryptedSavedObjects/{print $2} /reporting/{print $2}')
+    {
+      echo "KBN_SECURITY_KEY=${K1}"
+      echo "KBN_SAVEDOBJ_KEY=${K2}"
+      echo "KBN_REPORTING_KEY=${K3}"
+    } | sudo tee -a /etc/default/kibana >/dev/null
+    sudo systemctl restart kibana
+  fi
 }
 
 ########################
