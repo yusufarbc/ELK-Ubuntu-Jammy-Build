@@ -233,10 +233,6 @@ deploy_configs(){
     "${FILES_DIR}/elasticsearch/elasticsearch.yml" \
     "${ES_CONF_DIR}/elasticsearch.yml"
 
-  # ES log4j2.properties garanti altına al (bazı durumlarda eksik olabiliyor)
-  if [[ ! -f "${ES_CONF_DIR}/log4j2.properties" && -f /usr/share/elasticsearch/config/log4j2.properties ]]; then
-    install -m 0644 /usr/share/elasticsearch/config/log4j2.properties "${ES_CONF_DIR}/log4j2.properties"
-  fi
 
   # --- Kibana ---
   install -d -m 0755 /etc/kibana
