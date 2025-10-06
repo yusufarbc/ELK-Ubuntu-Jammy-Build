@@ -4,6 +4,7 @@
 # - Kibana: 0.0.0.0:5601 (CA doğrulaması)
 # - Logstash: dışa açık (5044/5045/5514/5515/5516)
 # - Enrollment token üretimi, Logstash keystore non-interactive, ILM & template
+
 set -Eeuo pipefail
 
 ########################
@@ -469,11 +470,10 @@ ufw_hint(){
 # Özet yazdır
 ########################
 print_summary(){
-  local IP; IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")"
   cat <<EOF
 
 ==================== KURULUM ÖZETİ ====================
-Kibana URL            : http://${IP}:5601
+Kibana URL            : http://<sunucu_ip>:5601
 Elasticsearch         : https://localhost:9200  (yalnız localhost)
 Elastic kullanıcı     : elastic
 Elastic parola        : ${ELASTIC_PW}
