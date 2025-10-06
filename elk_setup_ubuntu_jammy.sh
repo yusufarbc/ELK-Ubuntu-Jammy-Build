@@ -233,6 +233,10 @@ deploy_configs(){
     "${FILES_DIR}/elasticsearch/elasticsearch.yml" \
     "${ES_CONF_DIR}/elasticsearch.yml"
 
+  # ES log4j2.properties garanti altına al (bazı durumlarda eksik olabiliyor)
+  if [[ ! -f "${ES_CONF_DIR}/log4j2.properties" && -f /usr/share/elasticsearch/config/log4j2.properties ]]; then
+    install -m 0644 /usr/share/elasticsearch/config/log4j2.properties "${ES_CONF_DIR}/log4j2.properties"
+  fi
 
   # --- Kibana ---
   install -d -m 0755 /etc/kibana
@@ -240,10 +244,35 @@ deploy_configs(){
     "${FILES_DIR}/kibana/kibana.yml" \
     /etc/kibana/kibana.yml
 
+  # Kibana encryption key'leri: env dosyası yoksa üret → idempotent
+  if [[ -s /etc/kibana/kibana.env ]]; then
+    # mevcut değerleri koru
+    . /etc/kibana/kibana.env
+  else
+    KGEN=$(/usr/share/kibana/bin/kibana-encryption-keys generate -q --force)
+    SEC=$(awk -F': ' '/security\.encryptionKey/{print $2}' <<<"$KGEN" | tr -d '"')
+    SAV=$(awk -F': ' '/encryptedSavedObjects\.encryptionKey/{print $2}' <<<"$KGEN" | tr -d '"')
+    REP=$(awk -F': ' '/reporting\.encryptionKey/{print $2}' <<<"$KGEN" | tr -d '"')
+
+    # Env dosyasını yaz (genişlemiş değerlerle) ve erişimi kısıtla
+    cat >/etc/kibana/kibana.env <<EOF
+KBN_SECURITY_KEY=${SEC}
+KBN_SAVEDOBJ_KEY=${SAV}
+KBN_REPORTING_KEY=${REP}
+EOF
+    chmod 0600 /etc/kibana/kibana.env
+    chown root:root /etc/kibana/kibana.env
+  fi
+
+  # Kibana unit drop-in: EnvironmentFile okut (idempotent, her çalıştırmada aynı içerik)
+  install -d -m 0755 /etc/systemd/system/${KIBANA_SERVICE}.service.d
+  cat >/etc/systemd/system/${KIBANA_SERVICE}.service.d/10-env.conf <<'EOF'
+[Service]
+EnvironmentFile=-/etc/kibana/kibana.env
+EOF
+
   # --- Logstash pipelines ---
   install -d -m 0755 /etc/logstash/conf.d
-
-  # Tek tek kopyala; yoksa uyar ve atla (set -e ile düşmesin)
   for src in fortigate.conf windows_wef.conf syslog.conf kaspersky.conf; do
     if [[ -f "${FILES_DIR}/logstash/${src}" ]]; then
       install -m 0644 "${FILES_DIR}/logstash/${src}" "/etc/logstash/conf.d/${src}"
@@ -262,31 +291,12 @@ deploy_configs(){
     chmod 0644 /etc/logstash/translate/windows_event_codes.yml
   fi
 
-  # Logstash log dizini (log4j uyarılarını susturur)
+  # Logstash log dizini
   install -d -m 0755 -o logstash -g logstash /var/log/logstash
 
-  # kibana env keys
-  # 1) Anahtarları üret
-  KGEN=$(/usr/share/kibana/bin/kibana-encryption-keys generate -q --force)
-
-  # 2) Değerleri çek (çıktıdaki tırnakları da temizliyoruz)
-  SEC=$(printf '%s\n' "$KGEN" | awk -F': ' '/^xpack\.security\.encryptionKey/{print $2}')
-  SAV=$(printf '%s\n' "$KGEN" | awk -F': ' '/^xpack\.encryptedSavedObjects\.encryptionKey/{print $2}')
-  REP=$(printf '%s\n' "$KGEN" | awk -F': ' '/^xpack\.reporting\.encryptionKey/{print $2}')
-  SEC="${SEC%\"}"; SEC="${SEC#\"}"
-  SAV="${SAV%\"}"; SAV="${SAV#\"}"
-  REP="${REP%\"}"; REP="${REP#\"}"
-
-  # 3) /etc/default/kibana içine ekle (her satır ayrı; heredoc yok → syntax sorunu yok)
-  printf 'KBN_SECURITY_KEY=%s\n' "$SEC" | sudo tee -a /etc/default/kibana >/dev/null
-  printf 'KBN_SAVEDOBJ_KEY=%s\n' "$SAV" | sudo tee -a /etc/default/kibana >/dev/null
-  printf 'KBN_REPORTING_KEY=%s\n' "$REP" | sudo tee -a /etc/default/kibana >/dev/null
-
-  # 4) Servisi yeniden başlat ve kontrol et
-  sudo systemctl restart kibana
-  grep -E 'KBN_.*KEY' /etc/default/kibana
-  journalctl -u kibana -n 50 --no-pager
-  
+  # systemd reload + Kibana restart
+  systemctl daemon-reload
+  systemctl restart "${KIBANA_SERVICE}" || true
 }
 
 ########################
