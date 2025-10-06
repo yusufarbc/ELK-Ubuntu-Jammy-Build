@@ -242,10 +242,23 @@ curl -s --cacert /etc/elasticsearch/certs/ca.crt -u elastic:<PW> https://localho
 Sertifikaları (localhost SAN) baştan üretmek istersen:
 
 ```bash
-sudo systemctl stop elasticsearch kibana logstash
-sudo rm -rf /etc/elasticsearch/certs/http* /etc/elasticsearch/certs/transport* \
-            /etc/elasticsearch/certs/http /etc/elasticsearch/certs/transport \
-            /etc/elasticsearch/certs/instances_*.yml
+sudo systemctl stop logstash kibana elasticsearch || true
+
+# ES / Kibana / Logstash konfig ve sertifikalar
+sudo rm -rf /etc/elasticsearch /etc/kibana /etc/logstash
+
+# systemd drop-in (ES_LOG_DIR/ES_PATH_CONF) ve loglar
+sudo rm -rf /etc/systemd/system/elasticsearch.service.d
+sudo rm -rf /var/log/elasticsearch /var/log/logstash
+sudo rm -rf /var/lib/elasticsearch /var/lib/logstash
+
+# Logstash ortam dosyası (keystore parolası vs.)
+sudo rm -f /etc/default/logstash /etc/sysconfig/logstash
+
+# systemd yenile
+sudo systemctl daemon-reload
+
+# scripti yeniden başlat
 sudo ./elk_setup_ubuntu_jammy.sh
 ```
 

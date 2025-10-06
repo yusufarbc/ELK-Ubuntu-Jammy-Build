@@ -1,9 +1,84 @@
 #!/usr/bin/env bash
-# Elastic Stack (agentless) — Ubuntu Jammy Otomatik Kurulum
-# - Elasticsearch: localhost:9200 (TLS, http.p12 keystore)
-# - Kibana: 0.0.0.0:5601 (CA doğrulaması)
-# - Logstash: dışa açık (5044/5045/5514/5515/5516)
-# - Enrollment token üretimi, Logstash keystore non-interactive, ILM & template
+# ==============================================================================
+# Elastic Stack (Agentless) — Ubuntu 22.04 Jammy Otomatik Kurulum Script'i
+# ==============================================================================
+# AMAÇ
+#   - Orta ölçekli kurumlar için **agentless** (Elastic Agent/Fleet kullanılmadan)
+#     Elastic Stack kurulumu ve temel SIEM altyapısının dakikalar içinde,
+#     **tek komutla**, **etkileşimsiz** ve **güvenli** olarak hayata geçirilmesi.
+#
+# BİLEŞENLER / TOPOLOJİ
+#   - Elasticsearch: 127.0.0.1:9200 (yalnızca localhost), **TLS etkin**
+#       * HTTP katmanı: PKCS#12 keystore (http.p12) — sertifika & anahtar script ile üretilir
+#       * Transport katmanı: PEM sertifikalar (CA, crt, key) — script ile üretilir
+#       * Güvenlik: xpack.security.enabled = true
+#       * Enrollment: xpack.security.enrollment.enabled = true (token üretimi için)
+#   - Kibana: 0.0.0.0:5601 (dışa açık), ES’e CA ile güvenli bağlantı
+#   - Logstash: dışa açık input’lar
+#       * Beats (FortiGate vb.): 5044/tcp
+#       * WEF/Winlogbeat (WEC sunucusundan): 5045/tcp
+#       * Syslog RFC3164: 5514/tcp+udp
+#       * Syslog RFC5424: 5515/tcp
+#       * Kaspersky (syslog varsayımı): 5516/tcp+udp
+#
+# LOGSTASH PIPELINES (ECS’e yakın normalizasyon)
+#   - fortigate.conf     : beats → grok/kv → ECS alan eşleştirme → Elasticsearch
+#   - windows_wef.conf   : Winlogbeat (WEF/WEC) → enrich (translate sözlük) → Elasticsearch
+#   - syslog.conf        : RFC3164 & RFC5424 ayrıştırma → Elasticsearch
+#   - kaspersky.conf     : basit grok ayrıştırma → Elasticsearch
+#   - translate sözlüğü  : windows_event_codes.yml (4624/4625 vb. kod açıklamaları)
+#
+# SERTİFİKA MİMARİSİ
+#   - CA (ca.crt / ca.key), HTTP (http.crt/key + http.p12), Transport (transport.crt/key)
+#   - SAN seti yalnızca localhost/IP’lerdir: 127.0.0.1, ::1, "localhost"
+#   - http.p12 parolasız üretilir (enrollment token aracı gerektirir)
+#
+# KİLİT DAVRANIŞLAR
+#   - **Idempotent** tasarım: tekrar çalıştırılabilir; gereksiz/çakışan ayarları temizler
+#   - Hizmetler systemd ile enable/start edilir; başarısızlıkta günlükler ekrana dökülür
+#   - Logstash keystore **non-interactive** oluşturulur (parola /etc/default/logstash içine yazılır)
+#   - Enrollment token script sonunda otomatik üretilir (gerekirse ES yeniden başlatılır)
+#
+# İNDEKS YÖNETİMİ (ILM)
+#   - ILM politikası: **logs-90d** (90 günde sil)
+#   - Varsayılan şablon: logs-*-* / fortigate-logs-* (1 shard, 0 replica, ILM=logs-90d)
+#
+# DESTEKLENEN SÜRÜM/DAĞITIM
+#   - Ubuntu 22.04 LTS (Jammy)
+#   - Elastic 8.x (apt reposundan en güncel 8.x; script testleri 8.19.x ile uyumlu)
+#
+# GÜVENLİK NOTLARI
+#   - Elasticsearch yalnızca localhost’ta dinler; dışa açılmaz
+#   - Kibana & Logstash dışa açık çalışır; uygun **firewall (UFW/Security Group)** kuralı şarttır
+#   - Script, mevcut /etc/elasticsearch, /etc/kibana, /etc/logstash altında **uyumlu**
+#     dosyaları üzerine yazar; özelleştirmeleriniz varsa yedek alınız
+#
+# GEREKSİNİMLER
+#   - root veya sudo yetkisi
+#   - İnternet erişimi (Elastic APT deposu)
+#
+# KULLANIM
+#   git clone https://github.com/yusufarbc/ELK-Ubuntu-Jammy-Build.git
+#   cd ELK-Ubuntu-Jammy-Build
+#   chmod +x elk_setup_ubuntu_jammy.sh
+#   sudo ./elk_setup_ubuntu_jammy.sh
+#
+# ÇIKTI / BİLGİ
+#   - Kibana URL, elastic parolası, enrollment token, Logstash giriş portları ve CA yolları
+#     kurulum sonunda özet olarak yazdırılır
+#
+# HATA TEŞHİSİ
+#   - Başarısız bir adımda script systemd günlüklerinden son kayıtları basar:
+#       journalctl -u elasticsearch -n 200 --no-pager
+#       journalctl -u kibana -n 200 --no-pager
+#       journalctl -u logstash -n 200 --no-pager
+#
+# TELİF / LİSANS
+#   - Bu script “as is” sağlanır; üretim ortamlarında uygulamadan önce test ediniz.
+#   - Elastic lisans ve Basic kısıtları geçerlidir; ayrıntılar için elastic.co lisanslarını inceleyin.
+# ============================================================================== 
+
+
 set -Eeuo pipefail
 
 ########################
@@ -471,11 +546,10 @@ ufw_hint(){
 # Özet yazdır
 ########################
 print_summary(){
-  local IP; IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")"
   cat <<EOF
 
 ==================== KURULUM ÖZETİ ====================
-Kibana URL            : http://${IP}:5601
+Kibana URL            : http://<Sunucu_IP_veya_FQDN>:5601
 Elasticsearch         : https://localhost:9200  (yalnız localhost)
 Elastic kullanıcı     : elastic
 Elastic parola        : ${ELASTIC_PW}
@@ -493,6 +567,7 @@ Enrollment token      : ${ENROLL_TOKEN}
 [+] Kurulum tamamlandı.
 EOF
 }
+
 
 ########################
 # Çalıştır
