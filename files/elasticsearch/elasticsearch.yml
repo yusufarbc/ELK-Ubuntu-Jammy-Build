@@ -1,39 +1,29 @@
-# Elasticsearch (tek node, yalnızca localhost, TLS etkin)
+# Elasticsearch - single node, localhost + TLS
+cluster.name: elk-single
+node.name: ${HOSTNAME}
 
-cluster.name: msb-elk
-node.name: node-1
-
-path.data: /var/lib/elasticsearch
-path.logs: /var/log/elasticsearch
-
-# Tek node ve yalnızca localhost'ta dinle
-discovery.type: single-node
+# Sadece localhost'a bağlan
 network.host: 127.0.0.1
-http.host: 127.0.0.1
+http.port: 9200
 
-# Güvenlik
+# Single-node discovery
+discovery.type: single-node
+
+# Güvenlik (ES 8 ile default açık ama net belirtelim)
 xpack.security.enabled: true
+xpack.security.transport.ssl.enabled: true
+xpack.security.http.ssl.enabled: true
 
-# Enrollment token üretimi için ZORUNLU
+# Enrollment özelliği gerekli
 xpack.security.enrollment.enabled: true
 
-# =========================
-# HTTP TLS (REST API)
-#  - Script, /etc/elasticsearch/certs altında http.p12 üretiyor.
-#  - Parolasız PKCS#12 (script: `-passout pass:`), bu yüzden password satırı yok.
-# =========================
-xpack.security.http.ssl.enabled: true
-xpack.security.http.ssl.client_authentication: optional
-xpack.security.http.ssl.keystore.path: "/etc/elasticsearch/certs/http.p12"
+# HTTP katmanı: **PKCS12 keystore** (enrollment token için şart)
+xpack.security.http.ssl.keystore.path: /etc/elasticsearch/certs/http.p12
+# Eğer p12 parolasız üretildiyse aşağıyı boş bırak veya kaldır:
+# xpack.security.http.ssl.keystore.password: ""
 
-# =========================
-# Transport TLS (node içi)
-#  - Script PEM (transport.crt/key + ca.crt) üretiyor.
-# =========================
-xpack.security.transport.ssl.enabled: true
+# Transport: PEM (aynı CA ile imzalı)
+xpack.security.transport.ssl.certificate: /etc/elasticsearch/certs/transport.crt
+xpack.security.transport.ssl.key: /etc/elasticsearch/certs/transport.key
+xpack.security.transport.ssl.certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
 xpack.security.transport.ssl.verification_mode: certificate
-xpack.security.transport.ssl.certificate_authorities: ["/etc/elasticsearch/certs/ca.crt"]
-xpack.security.transport.ssl.certificate: "/etc/elasticsearch/certs/transport.crt"
-xpack.security.transport.ssl.key: "/etc/elasticsearch/certs/transport.key"
-
-# network/http host satırlarını script ekler (127.0.0.1)

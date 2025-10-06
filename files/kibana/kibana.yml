@@ -1,17 +1,18 @@
-# Kibana (dışa açık)
+# Kibana - dışa açık, ES'e TLS+CA ile bağlanır
 server.host: "0.0.0.0"
-server.port: 5601
+# server.publicBaseUrl: "http://<Sunucu_IP_veya_FQDN>:5601"  # opsiyonel
 
-# ES bağlantısı
+# Elasticsearch bağlantısı
 elasticsearch.hosts: ["https://localhost:9200"]
+elasticsearch.ssl.certificateAuthorities: ["/etc/elasticsearch/certs/ca.crt"]
+elasticsearch.ssl.verificationMode: certificate
 
-# CA yolu script tarafından sabitlenir:
-# elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]
+# Enrollment kullanacaksan betik zaten token üretip kibana-setup dener.
+# Enrollment yerine klasik kullanıcı/parola ile bağlamak istersen:
+# elasticsearch.username: "elastic"
+# elasticsearch.password: "<ELASTIC_PAROLA>"
 
-# Uyarıları susturmak için script rastgele encryption key'leri ekler:
-# xpack.security.encryptionKey: "<random>"
-# xpack.encryptedSavedObjects.encryptionKey: "<random>"
-# xpack.reporting.encryptionKey: "<random>"
-
-# Giriş ekranında basit tema (opsiyonel)
-status.allowAnonymous: false
+# Uyarıları kesmek için encryption key’ler (script /etc/default/kibana içine yazar)
+xpack.security.encryptionKey: ${KBN_SECURITY_KEY}
+xpack.encryptedSavedObjects.encryptionKey: ${KBN_SAVEDOBJ_KEY}
+xpack.reporting.encryptionKey: ${KBN_REPORTING_KEY}
