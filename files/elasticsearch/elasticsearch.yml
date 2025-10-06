@@ -1,20 +1,35 @@
 # Elasticsearch (tek node, yalnızca localhost, TLS etkin)
+
 cluster.name: msb-elk
 node.name: node-1
+
 path.data: /var/lib/elasticsearch
 path.logs: /var/log/elasticsearch
 
+# Tek node ve yalnızca localhost'ta dinle
 discovery.type: single-node
+network.host: 127.0.0.1
+http.host: 127.0.0.1
 
-# Güvenlik (Basic’te etkin)
+# Güvenlik
 xpack.security.enabled: true
 
-# HTTP TLS (script, http.p12 keystore.path satırını ekler/günceller)
-# xpack.security.http.ssl.enabled: true
-# xpack.security.http.ssl.keystore.path: "/etc/elasticsearch/certs/http.p12"
-# xpack.security.http.ssl.client_authentication: optional
+# Enrollment token üretimi için ZORUNLU
+xpack.security.enrollment.enabled: true
 
-# Transport TLS (PEM)
+# =========================
+# HTTP TLS (REST API)
+#  - Script, /etc/elasticsearch/certs altında http.p12 üretiyor.
+#  - Parolasız PKCS#12 (script: `-passout pass:`), bu yüzden password satırı yok.
+# =========================
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.client_authentication: optional
+xpack.security.http.ssl.keystore.path: "/etc/elasticsearch/certs/http.p12"
+
+# =========================
+# Transport TLS (node içi)
+#  - Script PEM (transport.crt/key + ca.crt) üretiyor.
+# =========================
 xpack.security.transport.ssl.enabled: true
 xpack.security.transport.ssl.verification_mode: certificate
 xpack.security.transport.ssl.certificate_authorities: ["/etc/elasticsearch/certs/ca.crt"]
