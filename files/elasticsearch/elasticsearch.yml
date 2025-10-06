@@ -1,4 +1,6 @@
-luster.name: msb-elk
+# Elasticsearch (tek node, yalnızca localhost, TLS etkin)
+
+cluster.name: msb-elk
 node.name: node-1
 
 path.data: /var/lib/elasticsearch
@@ -33,3 +35,5 @@ xpack.security.transport.ssl.verification_mode: certificate
 xpack.security.transport.ssl.certificate_authorities: ["/etc/elasticsearch/certs/ca.crt"]
 xpack.security.transport.ssl.certificate: "/etc/elasticsearch/certs/transport.crt"
 xpack.security.transport.ssl.key: "/etc/elasticsearch/certs/transport.key"
+
+# network/http host satırlarını script ekler (127.0.0.1)
