@@ -219,7 +219,7 @@ YAML
 }
 
 ########################
-# 7) Konfig dosyaları (ve ES TLS keystore.path)
+# 7) Konfig dosyaları (ve ES TLS keystore.path) burda sorun var
 ########################
 deploy_configs(){
   step "7/10 Konfigürasyon dosyaları"
@@ -278,15 +278,15 @@ deploy_configs(){
     :
   fi
 
-  # Kibana encryption keys (uyarıları sustur) — repoda sır tutmamak için RANDOM yazıyoruz
-  if ! grep -q '^xpack\.security\.encryptionKey:' /etc/kibana/kibana.yml; then
-    EK1="$(openssl rand -hex 32)"; EK2="$(openssl rand -hex 32)"; EK3="$(openssl rand -hex 32)"
-    {
-      echo "xpack.security.encryptionKey: \"${EK1}\""
-      echo "xpack.encryptedSavedObjects.encryptionKey: \"${EK2}\""
-      echo "xpack.reporting.encryptionKey: \"${EK3}\""
-    } >> /etc/kibana/kibana.yml
-  fi
+  # # Kibana encryption keys (uyarıları sustur) — repoda sır tutmamak için RANDOM yazıyoruz
+  # if ! grep -q '^xpack\.security\.encryptionKey:' /etc/kibana/kibana.yml; then
+  #   EK1="$(openssl rand -hex 32)"; EK2="$(openssl rand -hex 32)"; EK3="$(openssl rand -hex 32)"
+  #   {
+  #     echo "xpack.security.encryptionKey: \"${EK1}\""
+  #     echo "xpack.encryptedSavedObjects.encryptionKey: \"${EK2}\""
+  #     echo "xpack.reporting.encryptionKey: \"${EK3}\""
+  #   } >> /etc/kibana/kibana.yml
+  # fi
 
   # --- Logstash pipelines ---
   install -d -m 0755 /etc/logstash/conf.d

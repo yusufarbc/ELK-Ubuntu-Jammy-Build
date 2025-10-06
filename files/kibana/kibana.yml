@@ -13,6 +13,6 @@ elasticsearch.ssl.verificationMode: certificate
 # elasticsearch.password: "<ELASTIC_PAROLA>"
 
 # Uyarıları kesmek için encryption key’ler (script /etc/default/kibana içine yazar)
-xpack.security.encryptionKey: ${KBN_SECURITY_KEY}
-xpack.encryptedSavedObjects.encryptionKey: ${KBN_SAVEDOBJ_KEY}
-xpack.reporting.encryptionKey: ${KBN_REPORTING_KEY}
+# xpack.security.encryptionKey: ${KBN_SECURITY_KEY}
+# xpack.encryptedSavedObjects.encryptionKey: ${KBN_SAVEDOBJ_KEY}
+# xpack.reporting.encryptionKey: ${KBN_REPORTING_KEY}
