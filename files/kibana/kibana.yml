@@ -1,9 +1,17 @@
-# =============================================================================
-# Kibana - dışa açık (UI), ES'e TLS CA ile bağlanır
-# =============================================================================
+# Kibana (dışa açık)
 server.host: "0.0.0.0"
-elasticsearch.hosts: ["https://localhost:9200"]
-elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]
+server.port: 5601
 
-# Not: İlk açılışta UI enrollment token isteyecek. Token'ı
-# betik sonunda ekranda göreceksiniz.
+# ES bağlantısı
+elasticsearch.hosts: ["https://localhost:9200"]
+
+# CA yolu script tarafından sabitlenir:
+# elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]
+
+# Uyarıları susturmak için script rastgele encryption key'leri ekler:
+# xpack.security.encryptionKey: "<random>"
+# xpack.encryptedSavedObjects.encryptionKey: "<random>"
+# xpack.reporting.encryptionKey: "<random>"
+
+# Giriş ekranında basit tema (opsiyonel)
+status.allowAnonymous: false

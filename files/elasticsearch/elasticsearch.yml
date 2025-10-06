@@ -1,35 +1,24 @@
-# =============================================================================
-# Elasticsearch - single node, TLS etkin, YALNIZ localhost
-# =============================================================================
-cluster.name: msb-logs
+# Elasticsearch (tek node, yalnızca localhost, TLS etkin)
+cluster.name: msb-elk
 node.name: node-1
-
 path.data: /var/lib/elasticsearch
 path.logs: /var/log/elasticsearch
 
-# Dış dünyaya kapalı; sadece localhost
-network.host: 127.0.0.1
-http.port: 9200
-
-# Tek düğüm
 discovery.type: single-node
 
-# Güvenlik (Basic lisans) açık; TLS + auth
+# Güvenlik (Basic’te etkin)
 xpack.security.enabled: true
-xpack.security.enrollment.enabled: true
 
-# HTTP (REST) TLS
-xpack.security.http.ssl:
-  enabled: true
-  certificate: /etc/elasticsearch/certs/http.crt
-  key: /etc/elasticsearch/certs/http.key
-  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
-  verification_mode: full
+# HTTP TLS (script, http.p12 keystore.path satırını ekler/günceller)
+# xpack.security.http.ssl.enabled: true
+# xpack.security.http.ssl.keystore.path: "/etc/elasticsearch/certs/http.p12"
+# xpack.security.http.ssl.client_authentication: optional
 
-# Transport TLS
-xpack.security.transport.ssl:
-  enabled: true
-  certificate: /etc/elasticsearch/certs/transport.crt
-  key: /etc/elasticsearch/certs/transport.key
-  certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
-  verification_mode: certificate
+# Transport TLS (PEM)
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.certificate_authorities: ["/etc/elasticsearch/certs/ca.crt"]
+xpack.security.transport.ssl.certificate: "/etc/elasticsearch/certs/transport.crt"
+xpack.security.transport.ssl.key: "/etc/elasticsearch/certs/transport.key"
+
+# network/http host satırlarını script ekler (127.0.0.1)
