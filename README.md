@@ -1,6 +1,5 @@
 # ELK-Ubuntu-Jammy-Build
 
-**Amaç:**
 Ubuntu 22.04 (Jammy) üzerinde **tek komutla**, agentless (Elastic Agent/Fleet **yok**) çalışan, **Elasticsearch yalnızca localhost**, **Kibana ve Logstash dışa açık** olacak şekilde güvenli ve idempotent bir **Elastic Stack (SIEM) log toplama** kurulumu sağlar.
 Varsayılan pipeline’lar: **WEF (Windows Event Forwarding), Syslog (Linux & Ağ cihazları) ve Kaspersky**. Çıktılar **ECS**’e yakın normalize edilir, **data_stream + ILM (logs-90d)** ile yönetilir.
 
