@@ -492,7 +492,7 @@ WEF (Winlogbeat→LS)   : 5045/tcp
 Syslog (RFC3164)      : 5514/tcp+udp
 Syslog (RFC5424)      : 5515/tcp
 Kaspersky             : 5516/tcp+udp
-Data Streams/Index    : logs-<dataset>-default (ILM: logs-30d)
+Data Streams/Index    : logs-<dataset>-default (ILM: logs-90d)
 Enrollment token      : ${ENROLL_TOKEN}
 ========================================================
 [+] Kurulum tamamlandı.
