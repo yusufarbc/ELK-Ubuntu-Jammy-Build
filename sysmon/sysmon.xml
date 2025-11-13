@@ -1,0 +1,93 @@
+<Sysmon schemaversion="4.90">
+  <!-- Genel ayarlar -->
+  <HashAlgorithms>sha256</HashAlgorithms>
+  <CheckRevocation>false</CheckRevocation>
+  <DnsLookup>false</DnsLookup> <!-- 22-DNS zaten kaydediliyor; ek DNS çözümü kapalı -->
+
+  <EventFiltering>
+
+    <!-- (1) Process Create: çekirdek görünürlük -->
+    <ProcessCreate onmatch="exclude">
+      <!-- Gürültüyü azalt: bilinen sistem/yazılım yolları -->
+      <Image condition="begin with">C:\Windows\</Image>
+      <Image condition="begin with">C:\Program Files\</Image>
+      <Image condition="begin with">C:\Program Files (x86)\</Image>
+      <!-- İsterseniz imzalı imzasız ayrımı ekleyebilirsiniz:
+           <Signed condition="is">true</Signed> -->
+    </ProcessCreate>
+
+    <!-- (3) Network Connect: başlangıçta sistem süreçlerini dışla -->
+    <NetworkConnect onmatch="exclude">
+      <Image condition="begin with">C:\Windows\</Image>
+      <Image condition="begin with">C:\Program Files\</Image>
+      <Image condition="begin with">C:\Program Files (x86)\</Image>
+      <!-- Aşırı hacim yaratır; kademeli sıkılaştırın -->
+    </NetworkConnect>
+
+    <!-- (11) File Create: yürütülebilir & script uzantıları -->
+    <FileCreate onmatch="include">
+      <TargetFilename condition="end with">.exe</TargetFilename>
+      <TargetFilename condition="end with">.dll</TargetFilename>
+      <TargetFilename condition="end with">.sys</TargetFilename>
+      <TargetFilename condition="end with">.ps1</TargetFilename>
+      <TargetFilename condition="end with">.bat</TargetFilename>
+      <TargetFilename condition="end with">.vbs</TargetFilename>
+      <TargetFilename condition="end with">.js</TargetFilename>
+      <TargetFilename condition="end with">.hta</TargetFilename>
+      <TargetFilename condition="end with">.lnk</TargetFilename>
+    </FileCreate>
+
+    <!-- (22) DNS Query: başlangıçta sistem süreçlerini dışla -->
+    <DnsQuery onmatch="exclude">
+      <Image condition="begin with">C:\Windows\</Image>
+      <Image condition="begin with">C:\Program Files\</Image>
+      <Image condition="begin with">C:\Program Files (x86)\</Image>
+    </DnsQuery>
+
+    <!-- (7) Image Load: ileride açın, çok gürültü üretir -->
+    <ImageLoad onmatch="exclude">
+      <ImageLoaded condition="begin with">C:\Windows\</ImageLoaded>
+      <ImageLoaded condition="begin with">C:\Program Files\</ImageLoaded>
+      <ImageLoaded condition="begin with">C:\Program Files (x86)\</ImageLoaded>
+    </ImageLoad>
+
+    <!-- (10) Process Access: EDR-benzeri; önce kapalı tutup sonra açın -->
+    <ProcessAccess onmatch="exclude">
+      <SourceImage condition="begin with">C:\Windows\</SourceImage>
+      <SourceImage condition="begin with">C:\Program Files\</SourceImage>
+      <SourceImage condition="begin with">C:\Program Files (x86)\</SourceImage>
+    </ProcessAccess>
+
+    <!-- (12/13/14) Registry: kalıcılık noktaları -->
+    <RegistryEvent onmatch="include">
+      <!-- 12=CreateKey, 13=Value Set, 14=DeleteValue -->
+      <TargetObject condition="contains">\Software\Microsoft\Windows\CurrentVersion\Run</TargetObject>
+      <TargetObject condition="contains">\Software\Microsoft\Windows\CurrentVersion\RunOnce</TargetObject>
+      <TargetObject condition="contains">\Software\Microsoft\Windows\CurrentVersion\Policies\System\Scripts</TargetObject>
+      <TargetObject condition="contains">\System\CurrentControlSet\Services\</TargetObject>
+      <!-- Gerekirse whitelist ekleyin -->
+    </RegistryEvent>
+
+    <!-- (19/20/21) WMI: kalıcılık / kötüye kullanım -->
+    <WmiEvent onmatch="include">
+      <Operation condition="is">Created</Operation>
+      <Operation condition="is">Deleted</Operation>
+      <Operation condition="is">Modified</Operation>
+    </WmiEvent>
+
+    <!-- (23) File Delete (archived): isterseniz dahil edin; disk maliyeti var -->
+    <!--
+    <FileDelete onmatch="include">
+      <Image condition="exclude"></Image>
+    </FileDelete>
+    -->
+
+    <!-- (6) Driver Load: Microsoft imzası dışındakileri kaydetmek için -->
+    <DriverLoad onmatch="exclude">
+      <Signature condition="contains">Microsoft</Signature>
+      <SignatureStatus condition="is">Valid</SignatureStatus>
+    </DriverLoad>
+
+    <!-- (2) File Creation Time, (5) Process Terminate vb. başlangıçta gerekmez -->
+  </EventFiltering>
+</Sysmon>
