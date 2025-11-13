@@ -1,62 +1,36 @@
-<# Sysmon64 (x64) GPO kurulum script'i – UNC paylaşıma göre
- - İlk kurulum: -accepteula ile
- - Güncelleme: sysmon.xml hash değişirse -c ile
- - Kaldırma: -Uninstall parametresi
-#>
+# --- Sysmon64 sade GPO script (x64) ---
+# UNC paylaşımından dosyaları kopyalar.
+# Kurulu değilse kurar (-accepteula -i), kuruluysa konfigi uygular (-c).
+# Amaç: minimum karmaşıklık, minimum hata.
 
-param(
-  [switch]$Uninstall,
-  [switch]$ForceUpdate
-)
+$ErrorActionPreference = 'SilentlyContinue'
 
-$ErrorActionPreference = 'Stop'
+# Yollar
+$Share = "\\TTTRADC-S002\elk\sysmon"
+$Local = "C:\Program Files\Sysmon"
 
-$ShareRoot = "\\TTTRADC-S002\elk\sysmon"
-$LocalBin  = "C:\Program Files\Sysmon"
+$ExeSrc = Join-Path $Share "Sysmon64.exe"
+$CfgSrc = Join-Path $Share "sysmon.xml"
 
-$ExeSrc    = Join-Path $ShareRoot "Sysmon64.exe"
-$CfgSrc    = Join-Path $ShareRoot "sysmon.xml"
+$ExeLocal = Join-Path $Local "Sysmon64.exe"
+$CfgLocal = Join-Path $Local "sysmon.xml"
 
-$ExeLocal  = Join-Path $LocalBin "Sysmon64.exe"
-$CfgLocal  = Join-Path $LocalBin "sysmon.xml"
+# Klasör oluştur
+if (!(Test-Path $Local)) { New-Item -ItemType Directory -Path $Local | Out-Null }
 
-function Is-Installed { try { sc.exe query sysmon64 | Out-Null; $true } catch { $false } }
-function Get-Hash($p){ if(Test-Path $p){ (Get-FileHash $p -Algorithm SHA256).Hash.ToUpper() } else { "" } }
+# Dosyaları kopyala (üzerine yaz)
+Copy-Item $ExeSrc $ExeLocal -Force -ErrorAction SilentlyContinue
+Copy-Item $CfgSrc $CfgLocal -Force -ErrorAction SilentlyContinue
 
-# Kaldırma
-if ($Uninstall) {
-  if (Is-Installed) {
-    & "$ExeLocal" -u
-    Start-Sleep 2
-    sc.exe delete sysmon64 | Out-Null
-  }
-  exit 0
-}
+# Kurulu mu? (servis var mı bak)
+$svc = Get-Service -Name sysmon64 -ErrorAction SilentlyContinue
 
-# Klasör oluştur + dosyaları kopyala
-if (!(Test-Path $LocalBin)) { New-Item -ItemType Directory -Path $LocalBin | Out-Null }
-Copy-Item $ExeSrc $ExeLocal -Force
-Copy-Item $CfgSrc $CfgLocal -Force
-
-# 1) İlk kurulum değilse kur
-if (-not (Is-Installed)) {
-  & "$ExeLocal" -accepteula -i "$CfgLocal"
-  exit 0
-}
-
-# 2) Kuruluysa: çalışan config hash'ini güvenle oku (hata üretmeden)
-$cfgHashRunning = ""
-try {
-  $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-  $out = (& "$ExeLocal" -c 2>&1) | Out-String
-  $ErrorActionPreference = $prev
-  $m = [regex]::Match($out,'Configuration file hash:\s*([0-9A-F]+)')
-  if ($m.Success) { $cfgHashRunning = $m.Groups[1].Value }
-} catch { $cfgHashRunning = "" }
-
-$cfgHashNew = Get-Hash $CfgLocal
-
-# 3) Değişmişse veya zorla: yeni konfigi uygula
-if ($ForceUpdate -or ($cfgHashRunning -ne $cfgHashNew)) {
+if ($null -eq $svc) {
+  # İlk kurulum
+  & "$ExeLocal" -accepteula -i "$CfgLocal" *> $null
+} else {
+  # Mevcutsa her seferinde konfigi uygula (idempotent, sessiz)
   & "$ExeLocal" -c "$CfgLocal" *> $null
 }
+
+exit 0
