@@ -1,4 +1,4 @@
-<# Sysmon64 (x64) GPO kurulum script'i – TTTRADC-S002 paylaşıma göre
+<# Sysmon64 (x64) GPO kurulum script'i – UNC paylaşıma göre
  - İlk kurulum: -accepteula ile
  - Güncelleme: sysmon.xml hash değişirse -c ile
  - Kaldırma: -Uninstall parametresi
@@ -23,7 +23,7 @@ $CfgLocal  = Join-Path $LocalBin "sysmon.xml"
 function Is-Installed { try { sc.exe query sysmon64 | Out-Null; $true } catch { $false } }
 function Get-Hash($p){ if(Test-Path $p){ (Get-FileHash $p -Algorithm SHA256).Hash.ToUpper() } else { "" } }
 
-# Kaldırma modu
+# Kaldırma
 if ($Uninstall) {
   if (Is-Installed) {
     & "$ExeLocal" -u
@@ -33,23 +33,30 @@ if ($Uninstall) {
   exit 0
 }
 
-# Klasör hazırla ve dosyaları kopyala
+# Klasör oluştur + dosyaları kopyala
 if (!(Test-Path $LocalBin)) { New-Item -ItemType Directory -Path $LocalBin | Out-Null }
 Copy-Item $ExeSrc $ExeLocal -Force
 Copy-Item $CfgSrc $CfgLocal -Force
 
-# İlk kurulum mu?
+# 1) İlk kurulum değilse kur
 if (-not (Is-Installed)) {
   & "$ExeLocal" -accepteula -i "$CfgLocal"
   exit 0
 }
 
-# Çalışan konfig hash'i ile yeni konfig hash'ini karşılaştır
-$running = & "$ExeLocal" -c 2>&1
-$rx = $running | Select-String 'Configuration file hash:\s*([0-9A-F]+)' | Select-Object -First 1
-$cfgHashRunning = if($rx){ $rx.Matches[0].Groups[1].Value } else { "" }
-$cfgHashNew     = Get-Hash $CfgLocal
+# 2) Kuruluysa: çalışan config hash'ini güvenle oku (hata üretmeden)
+$cfgHashRunning = ""
+try {
+  $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $out = (& "$ExeLocal" -c 2>&1) | Out-String
+  $ErrorActionPreference = $prev
+  $m = [regex]::Match($out,'Configuration file hash:\s*([0-9A-F]+)')
+  if ($m.Success) { $cfgHashRunning = $m.Groups[1].Value }
+} catch { $cfgHashRunning = "" }
 
+$cfgHashNew = Get-Hash $CfgLocal
+
+# 3) Değişmişse veya zorla: yeni konfigi uygula
 if ($ForceUpdate -or ($cfgHashRunning -ne $cfgHashNew)) {
-  & "$ExeLocal" -c "$CfgLocal"
+  & "$ExeLocal" -c "$CfgLocal" *> $null
 }
