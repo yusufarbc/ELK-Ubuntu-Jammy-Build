@@ -1,0 +1,14 @@
+- pipeline.id: paloalto-pipeline
+  path.config: "/etc/logstash/conf.d/paloalto.conf"
+
+- pipeline.id: winlogbeat-pipeline
+  path.config: "/etc/logstash/conf.d/winlogbeat.conf"
+
+- pipeline.id: metric-heartbeat-pipeline
+  path.config: "/etc/logstash/conf.d/metric_heartbeat.conf"
+
+- pipeline.id: kaspersky-pipeline
+  path.config: "/etc/logstash/conf.d/kaspersky.conf"
+
+- pipeline.id: libraesva-pipeline
+  path.config: "/etc/logstash/conf.d/libraesva.conf"
