@@ -1,0 +1,11 @@
+winlogbeat.event_logs:
+  - name: Application
+  - name: System
+  - name: Security
+  - name: Microsoft-Windows-Sysmon/Operational
+  - name: Windows PowerShell
+  - name: Microsoft-Windows-PowerShell/Operational
+
+output.logstash:
+  hosts: ["10.34.66.18:5045"]
+  ssl.enabled: false

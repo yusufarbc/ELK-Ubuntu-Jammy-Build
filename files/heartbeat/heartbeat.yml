@@ -1,0 +1,14 @@
+heartbeat.monitors:
+  - type: http
+    name: Kibana
+    urls: ["http://10.34.66.18:5601"]
+    schedule: '@every 30s'
+
+  - type: icmp
+    name: Ping DC
+    hosts: ["10.34.66.10"]
+    schedule: '@every 30s'
+
+output.logstash:
+  hosts: ["10.34.66.18:5046"]
+  ssl.enabled: false

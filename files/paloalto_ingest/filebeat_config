@@ -1,0 +1,27 @@
+
+/etc/filebeat/filebeat.yml
+
+Palo Alto → rsyslog (Ubuntu) → /var/log/paloalto/paloalto.log → Filebeat (panw) → Logstash (5044) → Elasticsearch
+
+filebeat.inputs: []   # Inputları modüller üzerinden kullanıyoruz
+
+filebeat.modules:
+  # Modüller modules.d'den otomatik çekiliyor, ekstra yazmaya gerek yok
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: false
+
+# Logstash'a gönderiyoruz (ELK sunucusunda Logstash ile)
+output.logstash:
+  hosts: ["localhost:5044"]
+
+# (İstersen burayı 10.34.66.18:5044 yapabilirsin; Filebeat başka makinede olursa)
+
+setup.template.enabled: false   # ILM/Template işini Logstash/ES tarafında halledersin
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  rotateeverybytes: 10485760 # 10MB

@@ -1,0 +1,226 @@
+Aşağıdaki rehber **Winlogbeat, Metricbeat, Heartbeat, Sysmon gibi tüm agent'ların Active Directory – GPO ile otomatik kurulum ve güncellenmesi** için tam bir "best practice" dökümüdür.
+Basit, adım adım ve tamamen çalışır bir şekilde hazırlanmıştır.
+
+---
+
+# 🟦 **🔧 GPO ile Winlogbeat / Metricbeat / Heartbeat / Sysmon Dağıtma Rehberi**
+
+Bu rehber sayesinde tüm sunucu ve istemcilere merkezi olarak:
+
+* MSI kurulumu
+* YML config dağıtımı
+* Servis başlatma / güncelleme
+* Tekrar başarısız olursa otomatik yeniden deneme
+
+GPO üzerinden gerçekleşecektir.
+
+---
+
+# 1) 📁 Paylaşım Dizini Hazırlığı
+
+Domain Controller üzerinde (örneğin TTTRADC-S002):
+
+```
+C:\elk\
+ ├── sysmon\
+ │    ├── Sysmon64.exe
+ │    ├── sysmon.xml
+ │    └── install-sysmon.bat
+ ├── winlogbeat\
+ │    ├── winlogbeat.msi
+ │    ├── winlogbeat.yml
+ │    └── install-winlogbeat.bat
+ ├── metricbeat\
+ │    ├── metricbeat.msi
+ │    ├── metricbeat.yml
+ │    └── install-metricbeat.bat
+ └── heartbeat\
+      ├── heartbeat.msi
+      ├── heartbeat.yml
+      └── install-heartbeat.bat
+```
+
+### 📌 Paylaşım izinleri
+
+`C:\elk\`
+
+**Share Permission:**
+
+* Everyone → Read
+
+**NTFS Permission:**
+
+* Authenticated Users → Read & Execute
+
+⚠ Agent'lar sadece okuyacak, değişiklik yapmayacak.
+
+---
+
+# 2) 🏛 GPO Oluşturma (Startup Script GPO)
+
+Domain Controller'da:
+
+### **1)** Group Policy Management aç
+
+### **2)** OU’yu seç (ör. Sunucular OU)
+
+### **3)** Sağ tık → *Create a GPO in this domain, and Link it here…*
+
+Ad verin:
+
+```
+ELK-Agent-Deployment
+```
+
+### **4)** GPO’ya sağ tıklayın → **Edit**
+
+---
+
+# 3) ⚙️ GPO İçine Startup Script Ekleme
+
+Policynin altından:
+
+```
+Computer Configuration  
+   → Policies  
+      → Windows Settings  
+         → Scripts (Startup/Shutdown)  
+            → Startup
+```
+
+### → **Startup** çift tıklayın
+
+→ **Add…**
+→ **Browse…**
+
+Şimdi **GPO'nun kendi script klasörü** açılacak:
+
+```
+\\DOMAIN\SYSVOL\DOMAIN\Policies\{GPO-GUID}\Machine\Scripts\Startup
+```
+
+### 🟨 Yapmanız Gereken:
+
+Buraya **install-sysmon.bat**,
+**install-winlogbeat.bat**,
+**install-metricbeat.bat**,
+**install-heartbeat.bat**
+dosyalarını **kopyalayın**.
+
+Sonra **Add → Script Name** bölümüne sırayla ekleyin:
+
+```
+install-sysmon.bat
+install-winlogbeat.bat
+install-metricbeat.bat
+install-heartbeat.bat
+```
+
+Tümünü ekleyebilirsiniz.
+GPO her açılışta sırayla çalıştırır.
+
+---
+
+# 4) 🔁 GPO Uygulamasını Hızlandırma
+
+İstemci makinede:
+
+```
+gpupdate /force
+shutdown /r /t 0
+```
+
+Makine açıldığında **GPO Startup Script** devreye girer → servisi kurar / günceller.
+
+---
+
+# 5) 🧪 Log Kontrolü (çok önemli)
+
+İstemci makinede çalışıp çalışmadığını görmek için:
+
+```
+Event Viewer → Windows Logs → System
+Source: GroupPolicy
+```
+
+veya
+
+```
+Event Viewer → Applications and Services Logs → Microsoft → Windows → GroupPolicy → Operational
+```
+
+Startup script loglarını gösterir.
+
+---
+
+# 6) ✔ Kurulum Sonrası Kontrol
+
+### Winlogbeat:
+
+```
+sc query winlogbeat
+type "C:\Program Files\Winlogbeat\logs\winlogbeat"
+```
+
+### Metricbeat:
+
+```
+sc query metricbeat
+type "C:\Program Files\Metricbeat\logs\metricbeat"
+```
+
+### Heartbeat:
+
+```
+sc query heartbeat
+```
+
+### Sysmon:
+
+```
+sc query sysmon64
+```
+
+---
+
+# 7) 🎯 Önemli Notlar
+
+### ✔ GPO Startup Script **Local SYSTEM** hesabı ile çalışır
+
+Bu yüzden UNC paylaşımına erişebilmesi için:
+
+Şu hesapların OK olması gerekir:
+
+* **Domain Computers** → Paylaşım dizininde `Read`
+* Veya Everyone → Read (basit çözüm)
+
+### ✔ Scriptler idempotent
+
+Yani script **10 kez bile çalışsa sorun yok**:
+
+* Servis varsa günceller
+* Yoksa kurar
+* Config'i her zaman kopyalar
+* Servisi restart eder
+
+Tam GPO’ya uygun.
+
+---
+
+# 8) 🎁 Bonus: Hata Durumlarında Makine Logu Analizi
+
+Startup script çalışmıyorsa:
+
+Olay günlüğünde şu ID'lere bak:
+
+* **ID 600 — Startup script başlıyor**
+* **ID 601 — Script başarılı**
+* **ID 602 — Script hata verdi**
+
+---
+
+# Hazır!
+
+İstersen senin ortamına özel GPO raporu veya PowerShell GPO otomasyon scripti de hazırlayabilirim.
+
+Hazır mısın?

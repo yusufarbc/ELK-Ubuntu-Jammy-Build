@@ -1,0 +1,15 @@
+
+Dosya: /etc/logrotate.d/paloalto
+
+/var/log/paloalto/paloalto.log {
+    daily              # Her gün döndür
+    rotate 1           # Sadece 1 eski dosya tut (yaklaşık 1 günlük geçmiş)
+    compress           # Eski dosyayı .gz yap
+    missingok          # Dosya yoksa hata verme
+    notifempty         # Dosya boşsa döndürme
+    create 0640 syslog adm
+    sharedscripts
+    postrotate
+        systemctl reload rsyslog >/dev/null 2>&1 || true
+    endscript
+}
