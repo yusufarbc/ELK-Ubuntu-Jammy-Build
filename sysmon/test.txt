@@ -1,2 +1,0 @@
-sc query sysmon64
-"C:\Program Files\Sysmon\Sysmon64.exe" -? | Select-String "Sysmon v"

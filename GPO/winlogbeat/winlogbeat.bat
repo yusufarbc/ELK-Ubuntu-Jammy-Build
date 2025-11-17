@@ -1,6 +1,15 @@
 @echo off
 setlocal
 
+rem --- Marker dosyasi (sadece ilk sefer calismak icin) ---
+set "MARKER=C:\ProgramData\winlogbeat_installed.flag"
+
+rem Eger marker varsa, daha once kurulmus demektir, hicbir sey yapma
+if exist "%MARKER%" (
+  echo [INFO] Winlogbeat daha once kurulmus, scriptten cikiliyor...
+  exit /b 0
+)
+
 rem --- Paylaşım yolu ---
 set "SHARE=\\TTTRADC-S002\elk\winlogbeat"
 set "MSI=%SHARE%\winlogbeat.msi"
@@ -41,6 +50,10 @@ if %errorlevel%==0 (
   
   sc start %SERVICE% >nul
 )
+
+rem --- Kurulum / guncelleme basarili olduysa marker olustur ---
+rem Boylece bir sonraki reboot'ta script hicbir sey yapmadan hemen cikacak
+type nul > "%MARKER%"
 
 echo [OK] Winlogbeat hazir.
 exit /b 0

@@ -1,1 +1,0 @@
--ExecutionPolicy Bypass -File "\\TTTRADC-S002\elk\sysmon\sysmon_install.ps1"

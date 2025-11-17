@@ -1,6 +1,15 @@
 @echo off
 setlocal
 
+rem --- Marker dosyasi (sadece ilk sefer calismak icin) ---
+set "MARKER=C:\ProgramData\metricbeat_installed.flag"
+
+rem Eger marker varsa, daha once kurulmus demektir, hicbir sey yapma
+if exist "%MARKER%" (
+  echo [INFO] Metricbeat daha once kurulmus, scriptten cikiliyor...
+  exit /b 0
+)
+
 set "SHARE=\\TTTRADC-S002\elk\metricbeat"
 set "MSI=%SHARE%\metricbeat.msi"
 set "CFG=%SHARE%\metricbeat.yml"
@@ -38,6 +47,10 @@ if %errorlevel%==0 (
 
   sc start %SERVICE% >nul
 )
+
+rem --- Kurulum / guncelleme basarili olduysa marker olustur ---
+rem Boylece bir sonraki reboot'ta script hicbir sey yapmadan hemen cikacak
+type nul > "%MARKER%"
 
 echo [OK] Metricbeat hazir.
 exit /b 0

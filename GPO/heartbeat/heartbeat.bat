@@ -1,6 +1,15 @@
 @echo off
 setlocal
 
+rem --- Marker dosyasi (sadece ilk sefer calismak icin) ---
+set "MARKER=C:\ProgramData\heartbeat_installed.flag"
+
+rem Eger marker varsa, daha once kurulmus demektir, hicbir sey yapma
+if exist "%MARKER%" (
+  echo [INFO] Heartbeat daha once kurulmus, scriptten cikiliyor...
+  exit /b 0
+)
+
 set "SHARE=\\TTTRADC-S002\elk\heartbeat"
 set "MSI=%SHARE%\heartbeat.msi"
 set "CFG=%SHARE%\heartbeat.yml"
@@ -38,6 +47,11 @@ if %errorlevel%==0 (
 
   sc start %SERVICE% >nul
 )
+
+
+rem --- Kurulum / guncelleme basarili olduysa marker olustur ---
+rem Boylece bir sonraki reboot'ta script hicbir sey yapmadan hemen cikacak
+type nul > "%MARKER%"
 
 echo [OK] Heartbeat hazir.
 exit /b 0
