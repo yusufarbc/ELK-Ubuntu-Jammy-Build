@@ -36,6 +36,8 @@ if %errorlevel%==0 (
   copy "%CFG%" "%INSTALL_DIR%\winlogbeat.yml" /Y >nul
   
   "%INSTALL_DIR%\winlogbeat.exe" install
+
+  sc config "%SERVICE%" start= auto >nul
   
   sc start %SERVICE% >nul
 )
