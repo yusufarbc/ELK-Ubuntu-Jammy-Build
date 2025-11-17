@@ -33,6 +33,9 @@ if %errorlevel%==0 (
   copy "%CFG%" "%INSTALL_DIR%\heartbeat.yml" /Y >nul
   
   "%INSTALL_DIR%\heartbeat.exe" install
+
+  sc config "%SERVICE%" start= auto >nul
+
   sc start %SERVICE% >nul
 )
 
