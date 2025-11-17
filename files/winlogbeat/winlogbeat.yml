@@ -1,10 +1,21 @@
 winlogbeat.event_logs:
   - name: Application
+    ignore_missing_channel: true
+
   - name: System
+    ignore_missing_channel: true
+
   - name: Security
+    ignore_missing_channel: true
+
   - name: Microsoft-Windows-Sysmon/Operational
+    ignore_missing_channel: true
+
   - name: Windows PowerShell
+    ignore_missing_channel: true
+
   - name: Microsoft-Windows-PowerShell/Operational
+    ignore_missing_channel: true
 
 output.logstash:
   hosts: ["10.34.66.18:5045"]
